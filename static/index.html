@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Panel TI · Comité</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <div class="brand">
+      <span class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 3v18M3 12h18" opacity="0"/><path d="m4 7 8-4 8 4v10l-8 4-8-4V7z" opacity="0"/><path d="M12 2 3 7v10l9 5 9-5V7l-9-5z"/><path d="M3 7l9 5 9-5M12 12v10"/>
+        </svg>
+      </span>
+      Panel TI
+    </div>
+    <nav>
+      <button class="nav-btn active" data-view="dashboard"><span class="ic"></span>Resumen</button>
+      <button class="nav-btn" data-view="projects"><span class="ic"></span>Proyectos</button>
+      <button class="nav-btn" data-view="tasks"><span class="ic"></span>Tareas</button>
+      <button class="nav-btn" data-view="reports"><span class="ic"></span>Informes Comité</button>
+    </nav>
+    <div class="sidebar-footer">Panel de Gestión de TI</div>
+  </aside>
+
+  <main>
+    <section id="view-dashboard" class="view">
+      <h1>Resumen ejecutivo</h1>
+      <div class="kpis" id="kpi-cards"></div>
+      <h2>Avance por proyecto</h2>
+      <div id="project-progress"></div>
+    </section>
+
+    <section id="view-projects" class="view hidden">
+      <div class="view-head">
+        <h1>Proyectos</h1>
+        <button class="btn primary" id="btn-new-project"><span class="ic-plus"></span>Nuevo proyecto</button>
+      </div>
+      <div id="project-list" class="cards"></div>
+    </section>
+
+    <section id="view-tasks" class="view hidden">
+      <div class="view-head">
+        <h1>Tareas</h1>
+        <div>
+          <select id="filter-project" onchange="renderTasks()"></select>
+          <select id="filter-status" onchange="renderTasks()">
+            <option value="">Todos los estados</option>
+            <option value="todo">Por hacer</option>
+            <option value="in_progress">En curso</option>
+            <option value="blocked">Bloqueada</option>
+            <option value="done">Hecha</option>
+          </select>
+          <button class="btn primary" id="btn-new-task"><span class="ic-plus"></span>Nueva tarea</button>
+        </div>
+      </div>
+      <div id="board" class="board"></div>
+    </section>
+
+    <section id="view-reports" class="view hidden">
+      <div class="view-head">
+        <h1>Informes de Comité</h1>
+        <div>
+          <label>Desde <input type="date" id="rep-start"></label>
+          <label>Hasta <input type="date" id="rep-end"></label>
+          <button class="btn primary" id="btn-generate">Generar informe</button>
+        </div>
+      </div>
+      <div id="report-output"></div>
+      <h2>Informes guardados</h2>
+      <div id="saved-reports"></div>
+    </section>
+  </main>
+</div>
+
+<div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <h2 id="modal-title"></h2>
+    <div id="modal-body"></div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="hideModal()">Cancelar</button>
+      <button class="btn primary" id="modal-save">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll(".ic-plus").forEach(el => el.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" style="width:15px;height:15px;stroke:currentColor"><path d="M12 5v14M5 12h14"/></svg>');
+</script>
+<script src="app.js"></script>
+</body>
+</html>
