@@ -1,1 +1,3 @@
-requirements: flask, python-docx, openpyxl
+flask
+python-docx
+openpyxl
