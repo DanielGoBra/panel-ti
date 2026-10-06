@@ -1,0 +1,1 @@
+requirements: flask, python-docx, openpyxl
