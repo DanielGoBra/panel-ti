@@ -14,6 +14,8 @@ const I = {
   print: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 8V3.5h10V8M7 17H5a1.5 1.5 0 0 1-1.5-1.5v-6A1.5 1.5 0 0 1 5 8h14a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 19 17h-2"/><rect x="7" y="14" width="10" height="6.5" rx="1"/></svg>',
   save: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3.5h11L20.5 8v12a1.5 1.5 0 0 1-1.5 1.5H5A1.5 1.5 0 0 1 3.5 20V5A1.5 1.5 0 0 1 5 3.5z"/><path d="M8 3.5V9h7V3.5M8 20.5v-6h8v6"/></svg>',
   eye: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  blocked: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m5.5 5.5 13 13"/></svg>',
+  inbox: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>',
 };
 
 const STATUS_LABEL = { todo: "Por hacer", in_progress: "En curso", done: "Hecha", blocked: "Bloqueada" };
@@ -45,20 +47,20 @@ async function loadDashboard() {
   const rep = await api("/api/report");
   const k = rep.kpis;
   const cards = [
-    { num: k.total_tasks, lbl: "Tareas totales", cls: "" },
-    { num: `${k.completion_pct}%`, lbl: "Completado", cls: "green" },
-    { num: k.in_progress, lbl: "En curso", cls: "accent" },
-    { num: k.blocked, lbl: "Bloqueadas", cls: "amber" },
-    { num: k.overdue, lbl: "Vencidas", cls: "red" },
+    { num: k.total_tasks, lbl: "Tareas totales", sub: `${k.projects_tracked} proyectos`, cls: "", icon: I.tasks },
+    { num: `${k.completion_pct}%`, lbl: "Completado", sub: `${k.done} hechas`, cls: "green", icon: I.check },
+    { num: k.in_progress, lbl: "En curso", cls: "accent", sub: "en marcha", icon: I.dashboard },
+    { num: k.blocked, lbl: "Bloqueadas", sub: k.blocked > 0 ? "requieren atención" : "sin bloqueos", cls: "amber", icon: I.blocked },
+    { num: k.overdue, lbl: "Vencidas", sub: k.overdue > 0 ? "fuera de plazo" : "al día", cls: "red", icon: I.calendar },
   ];
   document.getElementById("kpi-cards").innerHTML = cards.map(c =>
-    `<div class="kpi-card ${c.cls}"><div class="num">${c.num}</div><div class="lbl">${c.lbl}</div></div>`).join("");
+    `<div class="kpi-card ${c.cls}"><div class="kpi-icon">${c.icon}</div><div class="num">${c.num}</div><div class="lbl">${c.lbl}</div><div class="sub">${c.sub}</div></div>`).join("");
   document.getElementById("project-progress").innerHTML = rep.by_project.length
     ? rep.by_project.map(p => {
         const pct = p.total ? Math.round(100 * p.done / p.total) : 0;
         return `<div class="progress-row"><div class="name">${esc(p.name)}<span>${p.done}/${p.total} hechas · ${p.blocked} bloqueadas</span></div><div class="bar"><div style="width:${pct}%"></div></div></div>`;
       }).join("")
-    : `<p class="empty-state">Aún no hay proyectos con tareas.</p>`;
+    : `<div class="empty-state"><span class="es-icon">${I.inbox}</span>Aún no hay proyectos con tareas.<br>Crea un proyecto y añade tareas para ver el avance aquí.</div>`;
 }
 
 // ---------- Projects ----------
@@ -66,8 +68,8 @@ async function loadProjects() {
   projects = await api("/api/projects");
   document.getElementById("project-list").innerHTML = projects.length
     ? projects.map(p => `
-      <div class="card">
-        <h3><span class="proj-color" style="background:${p.color}"></span>${esc(p.name)}</h3>
+      <div class="card" style="--card-accent:${p.color}">
+        <h3><span class="proj-color" style="background:${p.color};color:${p.color}"></span>${esc(p.name)}</h3>
         <div class="desc">${esc(p.description || "Sin descripción")}</div>
         <div class="meta">
           <span>${I.user}${esc(p.owner || "—")}</span>
@@ -78,7 +80,7 @@ async function loadProjects() {
           <button class="btn ghost danger" onclick="deleteProject(${p.id})">${I.trash} Eliminar</button>
         </div>
       </div>`).join("")
-    : `<p class="empty-state">Sin proyectos. Crea el primero.</p>`;
+    : `<div class="empty-state"><span class="es-icon">${I.projects}</span>Sin proyectos todavía.<br>Pulsa «Nuevo proyecto» para crear el primero.</div>`;
   const sel = document.getElementById("filter-project");
   sel.innerHTML = `<option value="">Todos los proyectos</option>` + projects.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("");
 }
@@ -132,7 +134,7 @@ function renderTasks() {
   document.getElementById("board").innerHTML = cols.map(c => {
     const items = filtered.filter(t => t.status === c);
     return `<div class="col" data-status="${c}" ondragover="dragOver(event)" ondragleave="dragLeave(event)" ondrop="dropTask(event)">
-      <div class="col-head">${STATUS_LABEL[c]}<span class="count">${items.length}</span></div>
+      <div class="col-head"><span><span class="dot"></span>${STATUS_LABEL[c]}</span><span class="count">${items.length}</span></div>
       ${items.map(t => taskCard(t)).join("")}
     </div>`;
   }).join("");
@@ -140,7 +142,7 @@ function renderTasks() {
 
 function taskCard(t) {
   const proj = projects.find(p => p.id === t.project_id);
-  return `<div class="task-card" draggable="true" ondragstart="dragStart(event, ${t.id})" ondragend="dragEnd(event)">
+  return `<div class="task-card${t.status === "done" ? " is-done" : ""}" draggable="true" ondragstart="dragStart(event, ${t.id})" ondragend="dragEnd(event)">
     <div class="title">${esc(t.title)}</div>
     <div class="sub">
       <span class="pill ${t.priority}">${PRI_LABEL[t.priority]}</span>
@@ -330,7 +332,7 @@ async function loadSavedReports() {
   document.getElementById("saved-reports").innerHTML = reps.length
     ? reps.map((r, i) => `<div class="saved-item" style="animation-delay:${i * 0.04}s"><span>${I.doc} ${esc(r.title)} · ${r.period_start} → ${r.period_end} <small>(${r.created_at})</small></span>
         <button class="btn ghost" onclick="viewSavedReport(${r.id})">${I.eye} Ver</button></div>`).join("")
-    : `<p class="empty-state">Todavía no hay informes guardados.</p>`;
+    : `<div class="empty-state"><span class="es-icon">${I.doc}</span>Todavía no hay informes guardados.<br>Genera un informe y pulsa «Guardar informe» para archivarlo.</div>`;
 }
 
 async function viewSavedReport(id) {
