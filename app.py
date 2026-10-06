@@ -212,5 +212,27 @@ def get_report(rid):
             return jsonify({"error": "No existe"}), 404
         return jsonify(json.loads(row["payload"]))
 
+def seed_demo_data():
+    with get_db() as db:
+        if db.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0:
+            db.executescript("""
+            INSERT INTO projects (name, description, color, owner) VALUES
+            ('Migración a la nube','Migrar servicios on-premise a AWS','#4a7fa5','Ana Torres'),
+            ('Ciberseguridad 2025','Plan de endurecimiento y parcheo','#c05a5a','Luis Pérez'),
+            ('Mesa de ayuda','Mejoras del sistema de tickets','#7c7cf0','Marta Ruiz');
+            INSERT INTO tasks (project_id, title, status, priority, assignee, due_date, tags, notes) VALUES
+            (1,'Levantamiento de infraestructura actual','done','high','Ana Torres','2025-01-20','infra',''),
+            (1,'Diseño de arquitectura en AWS','in_progress','critical','Ana Torres','2025-02-15','arquitectura','Definir VPC, subredes y IAM'),
+            (1,'Migrar base de datos principal','todo','high','Dev Team','2025-03-01','bd',''),
+            (2,'Auditoría de vulnerabilidades','done','critical','Luis Pérez','2025-01-15','seguridad',''),
+            (2,'Parcheo de servidores Windows','blocked','high','Luis Pérez','2025-02-01','parcheo','Bloqueado: ventana de mantenimiento pendiente de aprobación'),
+            (2,'Implementar MFA corporativo','in_progress','high','Marta Ruiz','2025-02-28','seguridad',''),
+            (3,'Actualizar catálogo de servicios','todo','low','Marta Ruiz','2025-03-10','procesos',''),
+            (3,'KPIs de satisfacción de usuarios','todo','medium','Marta Ruiz','2025-03-15','reportes','');
+            """)
+            db.commit()
+
 if __name__ == "__main__":
+    init_db()
+    seed_demo_data()
     app.run(debug=False, port=5000)
