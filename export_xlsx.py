@@ -4,7 +4,7 @@ from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.chart import BarChart, PieChart, Reference
 from openpyxl.utils import get_column_letter
 
-ACCENT = "5B5BD6"
+ACCENT = "2A78D6"
 HEADER_BG = "F1F1EF"
 
 
@@ -28,6 +28,7 @@ def build_xlsx(report):
         ("Completado (%)", k["completion_pct"]),
         ("Hechas", k["done"]),
         ("En curso", k["in_progress"]),
+        ("En revisión", k.get("review", 0)),
         ("Bloqueadas", k["blocked"]),
         ("Vencidas", k["overdue"]),
         ("Proyectos", k["projects_tracked"]),
@@ -93,15 +94,16 @@ def build_xlsx(report):
     for c in "ABC":
         ws3[c + "1"].fill = PatternFill("solid", start_color=HEADER_BG)
         ws3[c + "1"].font = Font(bold=True)
+    labels_pri = {"low": "Baja", "medium": "Media", "high": "Alta", "critical": "Crítica"}
     r = 2
     for t in rep["overdue_tasks"]:
         ws3.cell(row=r, column=1, value="VENCIDA")
-        ws3.cell(row=r, column=2, value=t["title"])
-        ws3.cell(row=r, column=3, value=f"Vencía {t['due_date']} · prioridad {t['priority']}")
+        ws3.cell(row=r, column=2, value=f"{t.get('key', '')} {t['title']}".strip())
+        ws3.cell(row=r, column=3, value=f"Vencía {t['due_date']} · prioridad {labels_pri.get(t['priority'], t['priority'])}")
         r += 1
     for t in rep["blocked_tasks"]:
         ws3.cell(row=r, column=1, value="BLOQUEADA")
-        ws3.cell(row=r, column=2, value=t["title"])
+        ws3.cell(row=r, column=2, value=f"{t.get('key', '')} {t['title']}".strip())
         ws3.cell(row=r, column=3, value=t.get("assignee", ""))
         r += 1
 

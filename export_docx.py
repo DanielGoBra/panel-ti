@@ -6,9 +6,10 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import parse_xml
 
-ACCENT = "5B5BD6"
+ACCENT = "2A78D6"
 DARK = "323232"
 MUTED = "7A7A7A"
+PRI = {"low": "Baja", "medium": "Media", "high": "Alta", "critical": "Crítica"}
 
 
 def _set_cell_bg(cell, color_hex):
@@ -50,7 +51,8 @@ def build_docx(report):
     resumen = (
         f"Durante el período analizado se gestionaron {k['total_tasks']} tareas distribuidas en "
         f"{k['projects_tracked']} proyectos, alcanzando un {k['completion_pct']}% de finalización. "
-        f"Actualmente hay {k['in_progress']} tareas en curso, {k['todo']} pendientes y {k['blocked']} bloqueadas. "
+        f"Actualmente hay {k['in_progress']} tareas en curso, {k.get('review', 0)} en revisión, {k['todo']} pendientes y {k['blocked']} bloqueadas. "
+        f"En el período se cerraron {k.get('closed_in_period', k['done'])} tareas. "
         f"El estado general de la cartera es {estado}."
     )
     doc.add_paragraph(resumen)
@@ -62,6 +64,7 @@ def build_docx(report):
         ("Completado", f"{k['completion_pct']}%", "pct"),
         ("Hechas", k["done"], "done"),
         ("En curso", k["in_progress"], "progress"),
+        ("En revisión", k.get("review", 0), "review"),
         ("Bloqueadas", k["blocked"], "blocked"),
         ("Vencidas", k["overdue"], "overdue"),
     ]
@@ -113,11 +116,13 @@ def build_docx(report):
     if rep["overdue_tasks"]:
         doc.add_heading("Tareas vencidas", level=1)
         for t in rep["overdue_tasks"]:
-            doc.add_paragraph(f"⚠ {t['title']} — vencía {t['due_date']} (prioridad {t['priority']})", style="List Bullet")
+            doc.add_paragraph(f"{t.get('key', '')} {t['title']} — vencía {t['due_date']} · prioridad {PRI.get(t['priority'], t['priority'])}"
+                              + (f" · {t['assignee']}" if t.get("assignee") else ""), style="List Bullet")
     if rep["blocked_tasks"]:
         doc.add_heading("Bloqueos que requieren atención del comité", level=1)
         for t in rep["blocked_tasks"]:
-            doc.add_paragraph(f"🚫 {t['title']}" + (f" — {t['assignee']}" if t["assignee"] else ""), style="List Bullet")
+            doc.add_paragraph(f"{t.get('key', '')} {t['title']}" + (f" — {t['assignee']}" if t["assignee"] else "")
+                              + (f". {t['notes']}" if t.get("notes") else ""), style="List Bullet")
 
     buf = io.BytesIO()
     doc.save(buf)
