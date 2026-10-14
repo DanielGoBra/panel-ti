@@ -1,0 +1,15 @@
+# Servicio systemd para Linux sin Docker.
+# sudo cp deploy/panel-ti.service /etc/systemd/system/ && sudo systemctl enable --now panel-ti
+[Unit]
+Description=Panel TI
+After=network.target
+
+[Service]
+User=panel
+WorkingDirectory=/opt/panel-ti
+EnvironmentFile=/opt/panel-ti/.env
+ExecStart=/opt/panel-ti/.venv/bin/python serve.py
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

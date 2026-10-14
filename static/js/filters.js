@@ -36,3 +36,14 @@ export function bindFilterBar(root) {
 }
 
 export const hasFilters = () => { const f = store.filters; return !!(f.q || f.project || f.assignee || f.priority || f.type || f.mine); };
+
+/** Muestra el filtro procedente de una pregunta en lenguaje natural y permite quitarlo. */
+export function renderAdvBanner(root) {
+  const slot = $(".adv-slot", root);
+  const a = store.filters.adv;
+  if (!slot) return;
+  if (!a) { slot.innerHTML = ""; return; }
+  slot.innerHTML = `<button type="button" class="chip-btn on adv-chip" title="Quitar filtro">${icons.question}<span>${esc(a.question ? `«${a.question}»` : a.explanation)}</span><span class="x">${icons.close}</span></button>`;
+  $("button", slot).title = a.explanation || "";
+  $("button", slot).onclick = () => store.setFilters({ adv: null });
+}

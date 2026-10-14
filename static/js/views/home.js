@@ -4,7 +4,7 @@ import { dataTable, lineChart, stackedBars } from "../charts.js";
 import { icons } from "../icons.js";
 import { store } from "../store.js";
 import { openTask } from "../taskpanel.js";
-import { avatar, dueChip, healthBadge, prioChip, projectDot, statusChip } from "../ui.js";
+import { approvalChip, avatar, dueChip, healthBadge, prioChip, projectDot, slaChip, statusChip } from "../ui.js";
 import { $, $$, esc, fmtDate, fmtLongDate, parseISO, plural, shortMonth, timeAgo } from "../util.js";
 
 export const title = "Inicio";
@@ -34,6 +34,9 @@ export async function render(root, _params, nav) {
   const attention = store.tasks
     .filter((t) => t.status === "blocked" || store.isOverdue(t))
     .sort((a, b) => (a.status === "blocked" ? -1 : 0) - (b.status === "blocked" ? -1 : 0) || (a.due_date || "9").localeCompare(b.due_date || "9"));
+  const approvals = store.tasks.filter((t) => t.approval_status === "pending");
+  const incidents = store.tasks.filter((t) => t.type === "incident" && t.status !== "done")
+    .sort((a, b) => (a.sla?.remaining_min ?? 1e9) - (b.sla?.remaining_min ?? 1e9)).slice(0, 7);
   const upcoming = store.tasks
     .filter((t) => t.status !== "done" && t.due_date && t.due_date >= store.today)
     .sort((a, b) => a.due_date.localeCompare(b.due_date)).slice(0, 7);
@@ -51,10 +54,10 @@ export async function render(root, _params, nav) {
     <div class="tiles">
       ${tile("Abiertas", "layers", k.open, `${k.critical_open} críticas`, { go: "#/lista" })}
       ${tile("Cerradas 7 días", "done", k.done_7d, delta === 0 ? "igual que la semana previa" : `<span class="${delta > 0 ? "up" : "down"}">${delta > 0 ? "+" : ""}${delta}</span> vs. semana previa`)}
-      ${tile("Vencidas", "calendar", k.overdue, k.overdue ? "fuera de plazo" : "todo en plazo", { alert: k.overdue > 0, go: "#/lista?vencidas=1" })}
-      ${tile("Bloqueadas", "blocked", k.blocked, k.blocked ? "esperan una decisión" : "sin bloqueos", { alert: k.blocked > 0, go: "#/tablero" })}
-      ${tile("Vencen esta semana", "clock", k.due_soon, "próximos 7 días", { go: "#/calendario" })}
-      ${tile("Tiempo de ciclo", "hourglass", k.median_cycle_days ?? "—", k.median_cycle_days != null ? "días (mediana, 30 días)" : "sin cierres recientes")}
+      ${tile("Vencidas", "calendar", k.overdue, `${k.due_soon} vencen esta semana`, { alert: k.overdue > 0, go: "#/lista?vencidas=1" })}
+      ${tile("Bloqueadas", "blocked", k.blocked, k.blocked ? "esperan una decisión" : "sin bloqueos", { alert: k.blocked > 0, go: "#/lista?estado=blocked" })}
+      ${tile("SLA cumplido", "timer", m.sla.compliance_pct != null ? `${m.sla.compliance_pct}<small>%</small>` : "—", m.sla.open_breached ? `<span class="down">${m.sla.open_breached} superados</span> · ${m.sla.open_risk} en riesgo` : m.sla.open_risk ? `${m.sla.open_risk} en riesgo ahora` : `${m.sla.closed} cerrados en 30 días`, { alert: m.sla.open_breached > 0, go: "sla" })}
+      ${tile("Riesgo de retraso", "trend", k.delay_risk, k.median_cycle_days != null ? `ciclo típico ${k.median_cycle_days} días` : "según el ritmo del equipo", { go: "delay" })}
     </div>
 
     <div class="grid-2">
@@ -102,6 +105,23 @@ export async function render(root, _params, nav) {
 
     <div class="grid-2 even">
       <section class="card">
+        <div class="card-head"><div><h3>Probablemente se retrasen</h3><div class="sub">Comparando lo que falta con lo que suele tardar este tipo de trabajo</div></div></div>
+        <div class="list-rows" style="margin-top:8px">
+        ${m.delays.map((d) => { const t = store.task(d.id); return t ? `<button class="row-item" data-task="${t.id}">
+          ${prioChip(t.priority, false)}<span class="grow"><span class="key">${esc(store.taskKey(t))}</span> ${esc(t.title)}<span class="reason">Vence ${esc(fmtDate(t.due_date))} · terminaría hacia el ${esc(fmtDate(d.expected))}</span></span><span class="risk">~${d.late_days} d</span>${avatar(t.assignee)}</button>` : ""; }).join("") || `<div class="row-item muted">Nada apunta a retrasarse.</div>`}
+        </div>
+      </section>
+      ${approvals.length ? `<section class="card">
+        <div class="card-head"><div><h3>Cambios pendientes del CAB</h3><div class="sub">${store.can.cab ? "Necesitan tu decisión o la de otra persona del comité" : "Esperan la aprobación del comité"}</div></div></div>
+        <div class="list-rows" style="margin-top:8px">${approvals.map((t) => `<button class="row-item" data-task="${t.id}">${approvalChip(t)}<span class="grow"><span class="key">${esc(store.taskKey(t))}</span> ${esc(t.title)}</span>${avatar(t.assignee)}</button>`).join("")}</div>
+      </section>` : `<section class="card">
+        <div class="card-head"><div><h3>Incidentes abiertos</h3><div class="sub">Con su tiempo restante de SLA</div></div></div>
+        <div class="list-rows" style="margin-top:8px">${incidents.map((t) => `<button class="row-item" data-task="${t.id}">${statusChip(t.status)}<span class="grow"><span class="key">${esc(store.taskKey(t))}</span> ${esc(t.title)}</span>${slaChip(t)}${avatar(t.assignee)}</button>`).join("") || `<div class="row-item muted">Sin incidentes abiertos.</div>`}</div>
+      </section>`}
+    </div>
+
+    <div class="grid-2 even">
+      <section class="card">
         <div class="card-head"><div><h3>Próximos vencimientos</h3><div class="sub">Abiertas con fecha</div></div><a class="btn sm ghost" href="#/calendario">Calendario</a></div>
         <div class="list-rows" style="margin-top:8px">
         ${upcoming.map((t) => `<button class="row-item" data-task="${t.id}">
@@ -127,7 +147,12 @@ export async function render(root, _params, nav) {
     extra: (r) => (r.capacity ? `<div class="tt-row">Capacidad<b>${r.capacity}</b></div>` : "") + (r.overdue ? `<div class="tt-row">Vencidas<b>${r.overdue}</b></div>` : ""),
   });
 
-  $$("[data-go]", root).forEach((b) => b.onclick = () => { location.hash = b.dataset.go; });
+  $$("[data-go]", root).forEach((b) => b.onclick = () => {
+    const g = b.dataset.go;
+    if (g === "sla") return nav("#/lista", { adv: { sla: "risk", statuses: [], types: [], question: "SLA en riesgo o superado", explanation: "Incidentes con el SLA en riesgo o superado" } });
+    if (g === "delay") return nav("#/lista", { adv: { delayed: true, statuses: [], types: [], question: "Riesgo de retraso", explanation: "Tareas que probablemente no lleguen a su fecha" } });
+    location.hash = g;
+  });
   $$("[data-task]", root).forEach((b) => b.onclick = () => openTask(b.dataset.task));
   $$("[data-project]", root).forEach((r) => r.onclick = () => nav("#/tablero", { project: r.dataset.project }));
   $$("[data-toggle]", root).forEach((b) => b.onclick = () => {
@@ -141,4 +166,4 @@ export async function render(root, _params, nav) {
 }
 
 // Solo se vuelve a pedir métricas cuando cambian datos de tareas.
-export const refreshOn = ["task", "project", "member", "load", "user"];
+export const refreshOn = ["task", "project", "member", "load", "remote"];

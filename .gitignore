@@ -1,4 +1,11 @@
 __pycache__/
 *.pyc
 data.db
+data.db-wal
+data.db-shm
+*.db-journal
 server.log
+.secret_key
+uploads/
+backups/
+.env
