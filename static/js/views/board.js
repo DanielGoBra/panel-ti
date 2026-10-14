@@ -1,8 +1,8 @@
-import { bindFilterBar, filterBar, hasFilters } from "../filters.js";
+import { bindFilterBar, filterBar, hasFilters, renderAdvBanner } from "../filters.js";
 import { icons } from "../icons.js";
 import { STATUS, store } from "../store.js";
 import { askBlockReason, openTask } from "../taskpanel.js";
-import { avatar, dueChip, modal, popMenu, prioChip, projectDot, toast, toastError, typeIcon } from "../ui.js";
+import { approvalChip, avatar, delayChip, dueChip, modal, popMenu, prioChip, projectDot, slaChip, toast, toastError, typeIcon } from "../ui.js";
 import { $, $$, addDays, esc } from "../util.js";
 
 export const title = "Tablero";
@@ -12,13 +12,20 @@ let quickAddOpen = null; // estado de la columna con alta rápida abierta
 
 export function card(t, { showProject = true } = {}) {
   const p = store.project(t.project_id);
+  const parent = t.parent_id ? store.task(t.parent_id) : null;
   const tags = (t.tags || "").split(",").map((x) => x.trim()).filter(Boolean).slice(0, 2);
   const chk = t.checklist_total ? `<span class="meta-ic${t.checklist_done === t.checklist_total ? " full" : ""}" title="Checklist">${icons.checklist}${t.checklist_done}/${t.checklist_total}</span>` : "";
+  const subs = t.subtask_total ? `<span class="meta-ic${t.subtask_done === t.subtask_total ? " full" : ""}" title="Subtareas">${icons.subtask}${t.subtask_done}/${t.subtask_total}</span>` : "";
   const com = t.comment_count ? `<span class="meta-ic" title="Comentarios">${icons.comment}${t.comment_count}</span>` : "";
-  return `<article class="tcard${t.status === "done" ? " is-done" : ""}" draggable="true" tabindex="0" data-id="${t.id}" aria-label="${esc(store.taskKey(t))} ${esc(t.title)}">
-    <div class="t-top">${typeIcon(t.type)}<span class="key">${esc(store.taskKey(t))}</span>${showProject && p ? `${projectDot(p)}` : ""}${avatar(t.assignee)}</div>
+  const att = t.attachment_count ? `<span class="meta-ic" title="Adjuntos">${icons.clip}${t.attachment_count}</span>` : "";
+  const lock = t.blocked_by?.length ? `<span class="lock" title="Espera a ${t.blocked_by.map((id) => store.task(id)).filter(Boolean).map((d) => store.taskKey(d)).join(", ")}">${icons.lock}</span>` : "";
+  const rep = t.recurrence_rule ? `<span class="meta-ic" title="Tarea recurrente">${icons.repeat}</span>` : "";
+  const drag = store.can.edit ? ' draggable="true"' : "";
+  return `<article class="tcard${t.status === "done" ? " is-done" : ""}"${drag} tabindex="0" data-id="${t.id}" aria-label="${esc(store.taskKey(t))} ${esc(t.title)}">
+    <div class="t-top">${typeIcon(t.type)}<span class="key">${esc(store.taskKey(t))}</span>${showProject && p ? `${projectDot(p)}` : ""}${lock}${approvalChip(t)}${avatar(t.assignee)}</div>
+    ${parent ? `<div class="t-parent">${icons.subtask}${esc(store.taskKey(parent))} · ${esc(parent.title)}</div>` : ""}
     <div class="t-title">${esc(t.title)}</div>
-    <div class="t-meta">${prioChip(t.priority, t.priority === "critical" || t.priority === "high")}${dueChip(t)}${chk}${com}${tags.map((g) => `<span class="tag">${esc(g)}</span>`).join("")}</div>
+    <div class="t-meta">${prioChip(t.priority, t.priority === "critical" || t.priority === "high")}${t.status !== "done" ? slaChip(t) : ""}${dueChip(t)}${delayChip(t)}${subs}${chk}${com}${att}${rep}${tags.map((g) => `<span class="tag">${esc(g)}</span>`).join("")}</div>
   </article>`;
 }
 
@@ -42,32 +49,33 @@ export function render(root, params) {
     const over = lim && total > lim;
     return `<section class="col" data-status="${s.id}" aria-label="${s.label}">
       <header class="col-head" data-s="${s.id}">
-        <span class="status-dot" data-s="${s.id}"></span>${s.label}<span class="n">${total}</span>
-        ${lim ? `<span class="wip${over ? " over" : ""}" title="Límite de trabajo en curso">${over ? "Límite superado · " : "máx. "}${lim}</span>` : ""}
-        <span class="tools">
+        <span class="status-dot" data-s="${s.id}"></span>${s.label}${lim ? "" : `<span class="n">${total}</span>`}
+        ${lim ? `<span class="wip${over ? " over" : ""}" title="${over ? `Supera el límite de ${lim} tareas en curso` : `Límite de ${lim} tareas`}">${total}/${lim}</span>` : ""}
+        ${store.can.edit ? `<span class="tools">
           <button class="icon-btn" data-add-top="${s.id}" title="Añadir tarea">${icons.plus}</button>
           <button class="icon-btn" data-col-menu="${s.id}" title="Opciones de columna">${icons.more}</button>
-        </span>
+        </span>` : ""}
       </header>
       <div class="col-body" data-scroll-key="col-${s.id}">
         ${items.map((t) => card(t, { showProject })).join("") || `<div class="col-empty">${hasFilters() ? "Sin coincidencias" : "Arrastra tareas aquí"}</div>`}
         ${hidden ? `<button class="quick-add-btn" data-show-done>${icons.eye}Ver ${hidden} cerradas hace más de ${DONE_WINDOW_DAYS} días</button>` : ""}
         ${s.id === "done" && showAllDone ? `<button class="quick-add-btn" data-hide-done>Ocultar cerradas antiguas</button>` : ""}
       </div>
-      <div class="quick-add" data-qa="${s.id}">${quickAddOpen === s.id
+      ${store.can.edit ? `<div class="quick-add" data-qa="${s.id}">${quickAddOpen === s.id
         ? `<textarea rows="2" placeholder="Título de la tarea" data-focus-key="qa-${s.id}"></textarea><div class="hint">Enter para crear · Esc para cerrar${p ? ` · en ${esc(p.name)}` : ""}</div>`
-        : `<button class="quick-add-btn" data-qa-open="${s.id}">${icons.plus}Nueva</button>`}</div>
+        : `<button class="quick-add-btn" data-qa-open="${s.id}">${icons.plus}Nueva</button>`}</div>` : ""}
     </section>`;
   }).join("");
 
   root.innerHTML = `<div class="board-wrap">
-    <div class="board-bar">${filterBar()}<div class="right"><span class="muted" style="font-size:12.5px">${tasks.length} tareas</span></div></div>
+    <div class="board-bar">${filterBar()}<div class="adv-slot"></div><div class="right"><span class="muted" style="font-size:12.5px">${tasks.length} tareas</span></div></div>
     <div class="board" data-scroll-key="board">${cols}</div>
   </div>`;
 
   bindFilterBar(root);
   bindCards(root);
-  bindDnD(root);
+  if (store.can.edit) bindDnD(root);
+  renderAdvBanner(root);
 
   $$("[data-qa-open]", root).forEach((b) => b.onclick = () => { quickAddOpen = b.dataset.qaOpen; render(root, params); $(`[data-qa="${quickAddOpen}"] textarea`, root)?.focus(); });
   $$("[data-add-top]", root).forEach((b) => b.onclick = () => { quickAddOpen = b.dataset.addTop; render(root, params); $(`[data-qa="${quickAddOpen}"] textarea`, root)?.focus(); });

@@ -10,6 +10,7 @@ export const title = "Informes";
 let period = null;
 let current = null;
 let savedView = false;
+let savedId = null;
 
 const PRESETS = [
   ["month", "Este mes"],
@@ -41,13 +42,22 @@ function summary(r) {
   return parts.join(" ");
 }
 
+function aiSections(ai) {
+  const sev = { alta: "risk", media: "watch", baja: "ok" };
+  return `${ai.trends.length ? `<h3>Tendencias</h3><ul class="rlist plain">${ai.trends.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+    ${ai.risks.length ? `<h3>Riesgos</h3><ul class="rlist">${ai.risks.map((x) => `<li><span class="health ${sev[x.severity] || "watch"}">${esc(x.severity)}</span><span class="grow"><b>${esc(x.title)}</b><span class="note">${esc(x.detail)}</span></span></li>`).join("")}</ul>` : ""}
+    ${ai.recommendations.length ? `<h3>Recomendaciones para el comité</h3><ol class="rlist num">${ai.recommendations.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
+    ${ai.agenda.length ? `<h3>Orden del día propuesto</h3><ol class="rlist num">${ai.agenda.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}`;
+}
+
 function paper(r) {
   const k = r.kpis;
   const pri = { low: "Baja", medium: "Media", high: "Alta", critical: "Crítica" };
   return `<article class="paper" id="report-paper">
     <h1>${esc(r.title)}</h1>
     <p class="meta-line">${esc(store.settings.workspace || "")} · Período ${esc(fmtDate(r.period.start, { year: true }))} – ${esc(fmtDate(r.period.end, { year: true }))} · Generado ${esc(r.generated_at.replace("T", " ").slice(0, 16))}</p>
-    <p class="summary">${summary(r)}</p>
+    <p class="summary">${r.ai ? esc(r.ai.summary) : summary(r)}</p>
+    ${r.ai ? `<p class="ai-note">${icons.bulb}Resumen, riesgos y recomendaciones redactados con IA a partir de los datos del informe. Revísalos antes de presentarlo.</p>` : ""}
     <div class="rkpis">
       <div class="rkpi"><b>${k.total_tasks}</b><span>Tareas</span></div>
       <div class="rkpi"><b>${k.completion_pct}%</b><span>Completado</span></div>
@@ -57,6 +67,8 @@ function paper(r) {
       <div class="rkpi"><b${k.blocked ? ' style="color:var(--bad)"' : ""}>${k.blocked}</b><span>Bloqueadas</span></div>
       <div class="rkpi"><b${k.overdue ? ' style="color:var(--bad)"' : ""}>${k.overdue}</b><span>Vencidas</span></div>
     </div>
+    ${r.sla ? `<div class="rep-sla"><div><b>${r.sla.compliance_pct ?? "—"}${r.sla.compliance_pct != null ? "%" : ""}</b><span>SLA cumplido (${r.sla.met} de ${r.sla.closed} incidentes cerrados)</span></div><div><b${r.sla.open_breached ? ' style="color:var(--bad)"' : ""}>${r.sla.open_breached}</b><span>abiertos con el SLA superado</span></div><div><b>${r.sla.open_risk}</b><span>abiertos en riesgo</span></div></div>` : ""}
+    ${r.ai ? aiSections(r.ai) : ""}
     <div class="rep-charts">
       <div><h3>Tareas por estado</h3><div class="chart" id="r-status"></div></div>
       <div><h3>Tareas por prioridad</h3><div class="chart" id="r-prio"></div></div>
@@ -66,6 +78,8 @@ function paper(r) {
       ${r.by_project.map((p) => { const pct = p.total ? Math.round((100 * p.done) / p.total) : 0; return `<tr><td>${esc(p.name)}</td><td class="n">${p.total}</td><td class="n">${p.done}</td><td class="n">${p.open}</td><td class="n"${p.blocked ? ' style="color:var(--bad);font-weight:600"' : ""}>${p.blocked}</td><td><div class="load"><div class="meter" style="flex:1"><i style="width:${pct}%"></i></div><span class="num">${pct}%</span></div></td></tr>`; }).join("") || '<tr><td colspan="6" class="muted">Sin datos en el período.</td></tr>'}
     </tbody></table></div>
     ${r.blocked_tasks.length ? `<h3>Bloqueos que requieren decisión</h3><ul class="rlist">${r.blocked_tasks.map((t) => `<li><span class="key">${esc(t.key || "")}</span><span class="grow">${esc(t.title)}${t.notes ? `<span class="note">${esc(t.notes)}</span>` : ""}</span><span class="muted">${esc(t.assignee || "Sin asignar")}</span></li>`).join("")}</ul>` : ""}
+    ${(r.pending_approvals || []).length ? `<h3>Cambios pendientes de aprobación</h3><ul class="rlist">${r.pending_approvals.map((t) => `<li><span class="key">${esc(t.key)}</span><span class="grow">${esc(t.title)}</span><span class="muted">${esc(t.assignee || "Sin asignar")}</span></li>`).join("")}</ul>` : ""}
+    ${(r.delay_risks || []).length ? `<h3>Riesgo de retraso</h3><ul class="rlist">${r.delay_risks.slice(0, 10).map((t) => `<li><span class="key">${esc(t.key)}</span><span class="grow">${esc(t.title)}</span><span class="muted">${esc(t.assignee || "Sin asignar")} · vence ${esc(fmtDate(t.due_date))}</span><span style="color:var(--warn);white-space:nowrap">~${t.late_days} d</span></li>`).join("")}</ul>` : ""}
     ${r.overdue_tasks.length ? `<h3>Tareas vencidas</h3><ul class="rlist">${r.overdue_tasks.map((t) => `<li><span class="key">${esc(t.key || "")}</span><span class="grow">${esc(t.title)}</span><span class="muted">${esc(pri[t.priority] || t.priority)} · ${esc(t.assignee || "Sin asignar")}</span><span style="color:var(--bad);white-space:nowrap">${esc(fmtDate(t.due_date))}</span></li>`).join("")}</ul>` : ""}
   </article>`;
 }
@@ -105,8 +119,10 @@ export async function render(root) {
 
 function drawReport(root) {
   const r = current;
+  const canAi = store.features.ai && store.can.edit && !savedView && !r.ai;
   $("#rep-out", root).innerHTML = paper(r) + `<div class="rep-actions">
-    ${savedView ? `<button class="btn" data-act="live">${icons.arrowRight}Volver al informe actual</button>` : `<button class="btn primary" data-act="save">${icons.save}Guardar en histórico</button>`}
+    ${savedView ? `<button class="btn" data-act="live">${icons.arrowRight}Volver al informe actual</button>` : store.can.edit ? `<button class="btn primary" data-act="save">${icons.save}Guardar en histórico</button>` : ""}
+    ${canAi ? `<button class="btn" data-act="ai">${icons.bulb}Redactar con IA</button>` : ""}
     <button class="btn" data-act="docx">${icons.doc}Word</button>
     <button class="btn" data-act="xlsx">${icons.sheet}Excel</button>
     <button class="btn" data-act="print">${icons.print}Imprimir o PDF</button>
@@ -129,8 +145,22 @@ function drawReport(root) {
   $$("[data-act]", root).forEach((b) => b.onclick = async () => {
     const a = b.dataset.act;
     const q = `start=${r.period.start}&end=${r.period.end}`;
-    if (a === "save") { try { await post("/api/reports", r); toast("Informe guardado en el histórico"); loadSaved(root); } catch (e) { toastError(e); } }
-    if (a === "docx" || a === "xlsx") downloadUrl(`/api/export/${a}?${q}`);
+    if (a === "save") { try { const s = await post("/api/reports", r); r.snapshot_id = s.id; toast("Informe guardado en el histórico"); loadSaved(root); } catch (e) { toastError(e); } }
+    if (a === "ai") {
+      b.disabled = true;
+      b.lastChild.textContent = "Redactando…";
+      try { r.ai = await post("/api/ai/report", { report: r }); r.snapshot_id = null; drawReport(root); toast("Redacción lista. Guárdala en el histórico para conservarla."); }
+      catch (e) { toastError(e); b.disabled = false; b.lastChild.textContent = "Redactar con IA"; }
+    }
+    if (a === "docx" || a === "xlsx") {
+      if (r.ai || savedView) {
+        try {
+          if (!r.snapshot_id && !savedView) r.snapshot_id = (await post("/api/reports", r)).id;
+          downloadUrl(`/api/export/${a}?${q}&snapshot=${r.snapshot_id || savedId}`);
+          if (!savedView) loadSaved(root);
+        } catch (e) { toastError(e); }
+      } else downloadUrl(`/api/export/${a}?${q}`);
+    }
     if (a === "print") window.print();
     if (a === "live") { savedView = false; render(root); }
   });
@@ -146,10 +176,10 @@ async function loadSaved(root) {
         <span class="grow">${esc(r.title)} · ${esc(fmtDate(r.period_start, { year: true }))} – ${esc(fmtDate(r.period_end, { year: true }))}</span>
         <span class="muted" style="font-size:12px">${esc(timeAgo(r.created_at))}</span>
         <button class="btn sm ghost" data-view="${r.id}">${icons.eye}Ver</button>
-        <button class="icon-btn" data-del="${r.id}" title="Eliminar">${icons.trash}</button></div>`).join("")}</div>`
+        ${store.can.edit ? `<button class="icon-btn" data-del="${r.id}" title="Eliminar">${icons.trash}</button>` : ""}</div>`).join("")}</div>`
       : emptyState("doc", "Sin informes guardados", "Guarda el informe del período para conservar la foto que se presentó al comité.");
     $$("[data-view]", box).forEach((b) => b.onclick = async () => {
-      try { current = await get(`/api/reports/${b.dataset.view}`); savedView = true; drawReport(root); $("#rep-out", root).scrollIntoView({ behavior: "smooth" }); } catch (e) { toastError(e); }
+      try { current = await get(`/api/reports/${b.dataset.view}`); savedView = true; savedId = Number(b.dataset.view); drawReport(root); $("#rep-out", root).scrollIntoView({ behavior: "smooth" }); } catch (e) { toastError(e); }
     });
     $$("[data-del]", box).forEach((b) => b.onclick = async () => {
       if (!(await confirmDialog({ title: "Eliminar informe guardado", text: "Se borrará del histórico." }))) return;

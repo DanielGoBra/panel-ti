@@ -2,6 +2,7 @@ import { icons } from "../icons.js";
 import { store } from "../store.js";
 import { confirmDialog, healthBadge, openProjectForm, person, popMenu, toast, toastError } from "../ui.js";
 import { $, $$, diffDays, esc, fmtDate } from "../util.js";
+import { newPage } from "./pages.js";
 
 export const title = "Proyectos";
 let tab = "active";
@@ -31,7 +32,7 @@ export function render(root, _params, nav) {
         const days = p.due_date ? diffDays(p.due_date, store.today) : null;
         return `<article class="card proj" style="--pc:${esc(p.color)}" data-id="${p.id}">
           <div class="proj-top"><div><span class="key">${esc(p.key)}${p.area ? ` · ${esc(p.area)}` : ""}</span><h3>${esc(p.name)}</h3></div>
-            <button class="icon-btn menu" data-menu="${p.id}" title="Opciones">${icons.more}</button></div>
+            ${store.can.edit ? `<button class="icon-btn menu" data-menu="${p.id}" title="Opciones">${icons.more}</button>` : ""}</div>
           <div class="proj-desc">${esc(p.description || "Sin descripción.")}</div>
           <div class="proj-stats">
             <div><b>${s.open}</b><span>abiertas</span></div>
@@ -44,7 +45,7 @@ export function render(root, _params, nav) {
             <span class="right">${healthBadge(s.state)}${p.due_date ? `<span title="Fecha objetivo"${days < 0 && s.open ? ' style="color:var(--bad)"' : ""}>${esc(fmtDate(p.due_date))}</span>` : ""}</span></div>
         </article>`;
       }).join("")}
-      ${tab === "active" ? `<button class="card proj proj-new" data-new><span>${icons.plus}Nuevo proyecto</span></button>` : ""}
+      ${tab === "active" && store.can.edit ? `<button class="card proj proj-new" data-new><span>${icons.plus}Nuevo proyecto</span></button>` : ""}
     </div>
     ${!list.length && tab !== "active" ? `<p class="muted" style="margin-top:12px">No hay proyectos en este estado.</p>` : ""}
   </div>`;
@@ -64,9 +65,10 @@ export function render(root, _params, nav) {
       { value: "edit", html: `${icons.edit}Editar` },
       { label: "Estado" },
       ...[["active", "Activo"], ["paused", "En pausa"], ["closed", "Cerrado"]].map(([k, l]) => ({ value: "st:" + k, html: l, selected: (p.status || "active") === k })),
-      { sep: true },
-      { value: "del", html: `${icons.trash}Eliminar`, danger: true },
+      { value: "pages", html: `${icons.page}Nueva página del proyecto` },
+      ...(store.can.admin ? [{ sep: true }, { value: "del", html: `${icons.trash}Eliminar`, danger: true }] : []),
     ], async (v) => {
+      if (v === "pages") newPage({ project_id: p.id });
       if (v === "board") nav("#/tablero", { project: p.id });
       if (v === "list") nav("#/lista", { project: p.id });
       if (v === "edit") openProjectForm(p);

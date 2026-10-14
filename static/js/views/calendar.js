@@ -1,4 +1,4 @@
-import { bindFilterBar, filterBar } from "../filters.js";
+import { bindFilterBar, filterBar, renderAdvBanner } from "../filters.js";
 import { icons } from "../icons.js";
 import { PRIORITY_RANK, store } from "../store.js";
 import { openTask } from "../taskpanel.js";
@@ -29,7 +29,7 @@ export function render(root, params) {
 
   const item = (t) => {
     const p = store.project(t.project_id);
-    return `<button class="cal-item${t.status === "done" ? " done" : ""}" draggable="true" data-id="${t.id}" style="--pc:${p ? esc(p.color) : "var(--border-strong)"}" title="${esc(store.taskKey(t))} ${esc(t.title)}">${statusDot(t.status)}<span>${esc(t.title)}</span></button>`;
+    return `<button class="cal-item${t.status === "done" ? " done" : ""}"${store.can.edit ? ' draggable="true"' : ""} data-id="${t.id}" style="--pc:${p ? esc(p.color) : "var(--border-strong)"}" title="${esc(store.taskKey(t))} ${esc(t.title)}">${statusDot(t.status)}<span>${esc(t.title)}</span></button>`;
   };
 
   let cells = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"].map((d) => `<div class="cal-dow">${d}</div>`).join("");
@@ -40,14 +40,14 @@ export function render(root, params) {
     const cls = [d.getMonth() !== m && "out", iso === store.today && "today"].filter(Boolean).join(" ");
     cells += `<div class="cal-day ${cls}" data-day="${iso}">
       <span class="cal-num">${d.getDate()}</span>
-      <button class="icon-btn cal-add" data-new="${iso}" title="Nueva tarea para el ${esc(fmtDate(iso))}">${icons.plus}</button>
+      ${store.can.edit ? `<button class="icon-btn cal-add" data-new="${iso}" title="Nueva tarea para el ${esc(fmtDate(iso))}">${icons.plus}</button>` : ""}
       ${list.slice(0, MAX_PER_DAY).map(item).join("")}
       ${list.length > MAX_PER_DAY ? `<button class="cal-more" data-more="${iso}">+${list.length - MAX_PER_DAY} más</button>` : ""}
     </div>`;
   }
 
   root.innerHTML = `<div class="cal-wrap">
-    <div class="board-bar">${filterBar()}</div>
+    <div class="board-bar">${filterBar()}<div class="adv-slot"></div></div>
     <div class="cal-bar">
       <h2>${monthName(y, m)}</h2>
       <button class="icon-btn" data-nav="-1" title="Mes anterior">${icons.chevronLeft}</button>
@@ -60,6 +60,7 @@ export function render(root, params) {
   </div>`;
 
   bindFilterBar(root);
+  renderAdvBanner(root);
   const rerender = () => render(root, params);
   $$("[data-nav]", root).forEach((b) => b.onclick = () => {
     const n = Number(b.dataset.nav);
