@@ -55,7 +55,30 @@ def build_docx(report):
         f"En el período se cerraron {k.get('closed_in_period', k['done'])} tareas. "
         f"El estado general de la cartera es {estado}."
     )
-    doc.add_paragraph(resumen)
+    ai = rep.get("ai")
+    doc.add_paragraph(ai["summary"] if ai else resumen)
+    sla = rep.get("sla")
+    if sla and sla.get("closed") is not None:
+        doc.add_paragraph(
+            f"SLA de incidentes: {sla['compliance_pct'] if sla['compliance_pct'] is not None else '—'}% cumplido "
+            f"({sla['met']} de {sla['closed']} cerrados). Abiertos con el plazo superado: {sla['open_breached']}; en riesgo: {sla['open_risk']}.")
+    if ai:
+        note = doc.add_paragraph()
+        r = note.add_run("Resumen, riesgos y recomendaciones redactados con IA a partir de los datos del informe.")
+        r.font.size = Pt(8.5)
+        r.font.color.rgb = RGBColor.from_string(MUTED)
+        for title, items in (("Tendencias", ai.get("trends", [])), ("Recomendaciones para el comité", ai.get("recommendations", [])),
+                             ("Orden del día propuesto", ai.get("agenda", []))):
+            if items:
+                doc.add_heading(title, level=1)
+                for it in items:
+                    doc.add_paragraph(it, style="List Number" if title != "Tendencias" else "List Bullet")
+        if ai.get("risks"):
+            doc.add_heading("Riesgos", level=1)
+            for rk in ai["risks"]:
+                para = doc.add_paragraph(style="List Bullet")
+                para.add_run(f"{rk['title']} ({rk['severity']}). ").bold = True
+                para.add_run(rk["detail"])
 
     # KPIs
     doc.add_heading("Indicadores clave (KPIs)", level=1)
@@ -118,6 +141,14 @@ def build_docx(report):
         for t in rep["overdue_tasks"]:
             doc.add_paragraph(f"{t.get('key', '')} {t['title']} — vencía {t['due_date']} · prioridad {PRI.get(t['priority'], t['priority'])}"
                               + (f" · {t['assignee']}" if t.get("assignee") else ""), style="List Bullet")
+    if rep.get("pending_approvals"):
+        doc.add_heading("Cambios pendientes de aprobación", level=1)
+        for t in rep["pending_approvals"]:
+            doc.add_paragraph(f"{t.get('key', '')} {t['title']}" + (f" — {t['assignee']}" if t.get("assignee") else ""), style="List Bullet")
+    if rep.get("delay_risks"):
+        doc.add_heading("Riesgo de retraso", level=1)
+        for t in rep["delay_risks"][:10]:
+            doc.add_paragraph(f"{t['key']} {t['title']} — vence {t['due_date']}, se estima ~{t['late_days']} días tarde", style="List Bullet")
     if rep["blocked_tasks"]:
         doc.add_heading("Bloqueos que requieren atención del comité", level=1)
         for t in rep["blocked_tasks"]:

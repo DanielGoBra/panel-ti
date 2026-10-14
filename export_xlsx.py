@@ -33,6 +33,10 @@ def build_xlsx(report):
         ("Vencidas", k["overdue"]),
         ("Proyectos", k["projects_tracked"]),
     ]
+    sla = rep.get("sla") or {}
+    if sla.get("closed") is not None:
+        kpis += [("SLA cumplido (%)", sla.get("compliance_pct") if sla.get("compliance_pct") is not None else "—"),
+                 ("SLA superado (abiertos)", sla.get("open_breached", 0))]
     ws["B5"] = "Indicador"
     ws["C5"] = "Valor"
     for cell in ("B5", "C5"):

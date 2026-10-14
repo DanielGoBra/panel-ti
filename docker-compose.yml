@@ -1,0 +1,31 @@
+# Panel TI con HTTPS automático (Caddy obtiene el certificado de Let's Encrypt).
+# 1. Copia .env.example como .env y define SECRET_KEY y PANEL_TI_DOMAIN.
+# 2. docker compose up -d
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: "1"
+    volumes:
+      - panel-data:/data
+
+  caddy:
+    image: caddy:2.8
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      PANEL_TI_DOMAIN: ${PANEL_TI_DOMAIN:-localhost}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    depends_on:
+      - app
+
+volumes:
+  panel-data:
+  caddy-data:
