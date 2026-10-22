@@ -18,7 +18,7 @@ from email.header import decode_header, make_header
 import backup
 from api_tasks import TASK_SELECT, add_rule, create_task_record, decorate
 from core import bump_revision, get_settings, now, task_key
-from db import get_db
+from db import get_db, lock
 from notify import notify
 
 log = logging.getLogger("panel-ti.automation")
@@ -37,7 +37,7 @@ _started = False
 def _claim(job, interval):
     """Devuelve True si toca ejecutar el trabajo y lo marca como en curso."""
     with get_db() as db:
-        db.execute("BEGIN IMMEDIATE")
+        lock(db, f"job:{job}")
         row = db.execute("SELECT value FROM state WHERE key=?", (f"job:{job}",)).fetchone()
         last = json.loads(row["value"]).get("at") if row else None
         if last and (datetime.now() - datetime.fromisoformat(last)).total_seconds() < interval:

@@ -1,5 +1,4 @@
 """Pruebas de la API. Ejecutar con: python3 -m unittest discover tests"""
-import importlib
 import io
 import os
 import sys
@@ -8,6 +7,8 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbenv  # noqa: E402
 H = {"X-Requested-With": "panel-ti"}
 PW = "demo-panel-ti"
 
@@ -16,18 +17,10 @@ class ApiTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        os.environ["PANEL_TI_DB"] = os.path.join(cls.tmp.name, "test.db")
-        os.environ["PANEL_TI_UPLOADS"] = os.path.join(cls.tmp.name, "uploads")
-        os.environ["PANEL_TI_BACKUP_DIR"] = os.path.join(cls.tmp.name, "backups")
-        os.environ["PANEL_TI_SCHEDULER"] = "0"
+        dbenv.configure(cls.tmp.name)
         os.environ["PANEL_TI_AI"] = "0"
         os.environ.pop("PANEL_TI_NO_SEED", None)
-        for mod in ("db", "core", "auth", "sla", "notify", "ai", "backup", "api_tasks", "api_core", "api_pages",
-                    "api_misc", "automation", "seed", "app"):
-            if mod in sys.modules:
-                importlib.reload(sys.modules[mod])
-        import app
-        cls.app = app
+        cls.app = dbenv.reload_app()
         cls.c = cls.login("ana.torres@empresa.com")
 
     @classmethod
@@ -39,6 +32,7 @@ class ApiTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
+        dbenv.cleanup()
         cls.tmp.cleanup()
 
     def tasks(self):

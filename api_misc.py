@@ -1,5 +1,7 @@
 """Activos, adjuntos, campos personalizados, plantillas, administración, IA y entrada por correo/webhook."""
+import io
 import json
+import logging
 import mimetypes
 import os
 import secrets
@@ -11,15 +13,16 @@ from werkzeug.utils import secure_filename
 
 import ai
 import backup
+import storage
 from api_tasks import TASK_SELECT, RuleError, create_task_record, decorate, raw_task
 from auth import require_admin
 from core import actor, bad, body, current_user, get_settings, get_state, is_admin, log, now, task_key
-from db import DB, get_db
+from db import DB, DIALECT, PG_SCHEMA, get_db
 from notify import notify
 
 bp = Blueprint("misc", __name__)
+logger = logging.getLogger("panel-ti.files")
 
-UPLOAD_DIR = os.environ.get("PANEL_TI_UPLOADS", os.path.join(os.path.dirname(os.path.abspath(DB)), "uploads"))
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".txt", ".log", ".csv", ".json", ".xml", ".yaml", ".yml",
                ".zip", ".7z", ".docx", ".xlsx", ".pptx", ".doc", ".xls", ".msg", ".eml", ".md", ".pcap", ".cfg", ".conf", ".ini"}
 INLINE_TYPES = {"image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"}
@@ -109,13 +112,15 @@ def _store_upload(task_id=None, page_id=None):
     ext = os.path.splitext(name)[1].lower()
     if ext not in ALLOWED_EXT:
         return bad(f"Tipo de archivo no permitido ({ext or 'sin extensión'})")
-    sub = date.today().strftime("%Y-%m")
-    os.makedirs(os.path.join(UPLOAD_DIR, sub), exist_ok=True)
-    stored = f"{sub}/{uuid.uuid4().hex}{ext}"
-    path = os.path.join(UPLOAD_DIR, stored)
-    f.save(path)
-    size = os.path.getsize(path)
+    stored = f"{date.today():%Y-%m}/{uuid.uuid4().hex}{ext}"
+    data = f.read()
+    size = len(data)
     mime = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    try:
+        storage.uploads().put(stored, data, mime)
+    except storage.StorageError as e:
+        logger.error("No se pudo guardar el adjunto: %s", e)
+        return bad("No se pudo guardar el archivo. Inténtalo de nuevo en unos minutos.", 502)
     with get_db() as db:
         fid = db.execute("INSERT INTO attachments (task_id, page_id, filename, stored_name, mime, size, uploaded_by, created_at) "
                          "VALUES (?,?,?,?,?,?,?,?)", (task_id, page_id, f.filename[:200], stored, mime, size, actor(), now())).lastrowid
@@ -148,11 +153,22 @@ def get_file(fid):
         row = db.execute("SELECT * FROM attachments WHERE id=?", (fid,)).fetchone()
     if not row:
         abort(404)
-    path = os.path.realpath(os.path.join(UPLOAD_DIR, row["stored_name"]))
-    if not path.startswith(os.path.realpath(UPLOAD_DIR)) or not os.path.exists(path):
-        abort(404)
+    store = storage.uploads()
+    try:
+        if store.kind == "local":
+            src = store.path(row["stored_name"])
+            if not os.path.isfile(src):
+                abort(404)
+        else:
+            data = store.get(row["stored_name"])
+            if data is None:
+                abort(404)
+            src = io.BytesIO(data)
+    except storage.StorageError as e:
+        logger.error("No se pudo leer el adjunto %s: %s", fid, e)
+        return bad("No se pudo recuperar el archivo. Inténtalo de nuevo en unos minutos.", 502)
     inline = row["mime"] in INLINE_TYPES and request.args.get("download") != "1"
-    resp = send_file(path, mimetype=row["mime"] if inline else "application/octet-stream",
+    resp = send_file(src, mimetype=row["mime"] if inline else "application/octet-stream",
                      as_attachment=not inline, download_name=row["filename"])
     resp.headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; sandbox"
     return resp
@@ -168,9 +184,9 @@ def delete_file(fid):
             return bad("Solo quien subió el archivo o administración pueden borrarlo", 403)
         db.execute("DELETE FROM attachments WHERE id=?", (fid,))
     try:
-        os.remove(os.path.join(UPLOAD_DIR, row["stored_name"]))
-    except OSError:
-        pass
+        storage.uploads().delete(row["stored_name"])
+    except storage.StorageError as e:
+        logger.warning("El adjunto %s quedó en el almacén: %s", row["stored_name"], e)
     return jsonify({"ok": True})
 
 
@@ -297,10 +313,21 @@ def apply_template(tpl_id):
 def admin_status():
     with get_db() as db:
         jobs = {k[4:]: v for k, v in ((r["key"], json.loads(r["value"])) for r in db.execute("SELECT * FROM state WHERE key LIKE 'job:%'"))}
-    size = os.path.getsize(DB) if os.path.exists(DB) else 0
+        if DIALECT == "postgres":
+            size = db.execute("SELECT COALESCE(SUM(pg_total_relation_size(c.oid)), 0) FROM pg_class c "
+                              "JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname=? AND c.relkind='r'", (PG_SCHEMA,)).fetchone()[0]
+            where = f"PostgreSQL · esquema {PG_SCHEMA}"
+        else:
+            size = os.path.getsize(DB) if os.path.exists(DB) else 0
+            where = DB
+    try:
+        backups = backup.list_backups()[:20]
+    except storage.StorageError as e:
+        logger.warning("No se pudieron listar las copias: %s", e)
+        backups = []
     return jsonify({
-        "db_path": DB, "db_size": size, "uploads_dir": UPLOAD_DIR, "backups": backup.list_backups()[:20],
-        "backup_dir": backup.BACKUP_DIR, "jobs": jobs, "ai_model": ai.MODEL if ai.available() else None,
+        "db_path": where, "db_size": size, "uploads_dir": storage.uploads().location, "backups": backups,
+        "backup_dir": storage.backups().location, "jobs": jobs, "ai_model": ai.MODEL if ai.available() else None,
     })
 
 
@@ -309,7 +336,7 @@ def admin_status():
 def admin_backup():
     try:
         info = backup.create_backup()
-    except OSError as e:
+    except (OSError, storage.StorageError) as e:
         return bad(f"No se pudo crear la copia: {e}", 500)
     return jsonify(info), 201
 
@@ -317,10 +344,29 @@ def admin_backup():
 @bp.get("/api/admin/backups/<name>")
 @require_admin
 def download_backup(name):
-    path = backup.backup_path(name)
-    if not path:
+    try:
+        data = backup.read_backup(name)
+    except storage.StorageError as e:
+        return bad(f"No se pudo descargar la copia: {e}", 502)
+    if data is None:
         abort(404)
-    return send_file(path, as_attachment=True, download_name=name)
+    return send_file(io.BytesIO(data), mimetype="application/octet-stream", as_attachment=True, download_name=name)
+
+
+@bp.post("/api/cron")
+def cron():
+    """Lanza los trabajos periódicos desde fuera (Cloudflare Cron Triggers, cron del sistema…).
+
+    Cabecera: Authorization: Bearer <CRON_SECRET>. Con ?job=nombre fuerza ese trabajo.
+    """
+    secret = os.environ.get("CRON_SECRET", "")
+    if len(secret) < 16 or not secrets.compare_digest(request.headers.get("Authorization", ""), f"Bearer {secret}"):
+        return bad("No autorizado", 401)
+    import automation
+    job = request.args.get("job") or None
+    if job and job not in automation.JOBS:
+        return bad("Trabajo desconocido")
+    return jsonify(automation.run_due_jobs(force=job))
 
 
 # ---------- IA ----------
@@ -427,7 +473,7 @@ def ai_kb(tid):
         kb_root = db.execute("SELECT id FROM pages WHERE kind='kb' AND parent_id IS NULL ORDER BY id LIMIT 1").fetchone()
         pid = create_page_record(db, {"title": art["title"], "icon": "📘", "kind": "kb", "blocks": blocks,
                                       "parent_id": kb_root["id"] if kb_root else None, "project_id": t["project_id"]})
-        db.execute("INSERT OR IGNORE INTO page_tasks (page_id, task_id) VALUES (?,?)", (pid, tid))
+        db.execute("INSERT INTO page_tasks (page_id, task_id) VALUES (?,?) ON CONFLICT DO NOTHING", (pid, tid))
         log(db, "kb_created", t, new=art["title"])
         page = page_out(db, db.execute("SELECT * FROM pages WHERE id=?", (pid,)).fetchone())
     return jsonify({"page": page, "source": source}), 201

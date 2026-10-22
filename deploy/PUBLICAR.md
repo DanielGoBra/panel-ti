@@ -94,4 +94,4 @@ En **Zero Trust → Access → Applications → Add an application (Self-hosted)
 
 ## Copias de seguridad
 
-Panel TI hace una copia diaria en la carpeta `backups/` del mismo equipo. Sincroniza esa carpeta y `uploads/` con Google Drive u OneDrive (con su aplicación de escritorio) para tener una copia fuera del equipo sin coste.
+Panel TI hace una copia diaria en la carpeta `backups/` del mismo equipo. Sincroniza esa carpeta y `uploads/` con Google Drive u OneDrive (con su aplicación de escritorio) para tener una copia fuera del equipo sin coste. Si usas Supabase (`deploy/SUPABASE.md`), las copias y los adjuntos ya quedan fuera del equipo.

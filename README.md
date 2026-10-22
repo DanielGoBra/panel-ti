@@ -75,7 +75,7 @@ Si ya tenías un `data.db` de una versión anterior, se migra solo al arrancar, 
 
 ## Puesta en producción
 
-**Sin coste**: con un subdominio de un dominio que ya tengas, Cloudflare Tunnel y el acceso con Google se puede publicar desde un equipo propio sin pagar servidor. La guía paso a paso está en [`deploy/PUBLICAR.md`](deploy/PUBLICAR.md).
+**Sin coste**: con un subdominio de un dominio que ya tengas, Cloudflare Tunnel y el acceso con Google se puede publicar desde un equipo propio sin pagar servidor. La guía paso a paso está en [`deploy/PUBLICAR.md`](deploy/PUBLICAR.md). Para guardar los datos en **Supabase** (PostgreSQL y Storage, plan gratuito) en lugar de en un archivo local, sigue [`deploy/SUPABASE.md`](deploy/SUPABASE.md).
 
 Usa `serve.py` (servidor **waitress**, funciona en Windows y en Linux) detrás de un proxy con HTTPS. Copia `.env.example` como `.env` y define al menos `SECRET_KEY` y `PANEL_TI_NO_SEED=1`.
 
@@ -97,11 +97,11 @@ Para HTTPS, publícalo con **IIS** (módulos URL Rewrite y ARR) como proxy inver
 
 **Opción C · Linux sin Docker**: hay un servicio systemd de ejemplo en `deploy/panel-ti.service`. Ponle delante Nginx o Caddy para el HTTPS.
 
-**Copias de seguridad**: la app hace una copia en caliente de la base cada 24 h y conserva las 14 últimas en `backups/` (variables `PANEL_TI_BACKUP_HOURS` y `PANEL_TI_BACKUP_KEEP`). También se pueden crear y descargar desde **Ajustes** o con `python manage.py backup`. Incluye la carpeta `uploads/` en la copia del servidor.
+**Copias de seguridad**: la app hace una copia cada 24 h y conserva las 14 últimas (variables `PANEL_TI_BACKUP_HOURS` y `PANEL_TI_BACKUP_KEEP`). Con SQLite es una copia en caliente del archivo; con PostgreSQL, una exportación de todas las tablas en `.json.gz`. Se guardan en `backups/` o, si está configurado, en Supabase Storage. También se pueden crear y descargar desde **Ajustes** o con `python manage.py backup`. Con adjuntos en disco, incluye la carpeta `uploads/` en la copia del servidor.
 
-**Base de datos**: SQLite en modo WAL soporta sin problema un área de TI de decenas de personas. Si el uso crece mucho (cientos de usuarios concurrentes o varios servidores), el siguiente paso es migrar a PostgreSQL. Ese cambio aún no está hecho.
+**Base de datos**: por defecto, SQLite en modo WAL, que soporta sin problema un área de TI de decenas de personas. Con `DATABASE_URL` la app usa **PostgreSQL** (Supabase, Neon, un servidor propio…) en el esquema `panel_ti`. `python manage.py import data.db` pasa los datos de una base SQLite a PostgreSQL.
 
-**Un solo proceso**: los avisos programados, las recurrencias y las copias corren en un hilo del propio servidor. `serve.py` ya usa un único proceso con varios hilos; no lo arranques con varios workers de gunicorn.
+**Tareas programadas**: los avisos, las recurrencias y las copias corren en un hilo del propio servidor. `serve.py` ya usa un único proceso con varios hilos. En plataformas que duermen el servidor entre peticiones, apaga ese hilo (`PANEL_TI_SCHEDULER=0`) y llama cada pocos minutos a `POST /api/cron` con la cabecera `Authorization: Bearer <CRON_SECRET>`.
 
 ## Integraciones
 
@@ -131,6 +131,9 @@ python manage.py set-password correo@empresa.com
 python manage.py set-role correo@empresa.com admin|member|viewer
 python manage.py list-users
 python manage.py backup
+python manage.py export copia.json.gz
+python manage.py import data.db|copia.json.gz [--replace]   # p. ej. de SQLite a Supabase
+python manage.py upload-files                               # adjuntos locales a Supabase Storage
 python manage.py run-jobs [sla|due|recurrence|backup|imap]
 ```
 
@@ -138,11 +141,13 @@ python manage.py run-jobs [sla|due|recurrence|backup|imap]
 
 ```bash
 python3 -m unittest discover tests
+# Las mismas pruebas contra PostgreSQL (cada clase usa un esquema temporal):
+TEST_DATABASE_URL=postgresql://postgres:postgres@localhost/panel_test python3 -m unittest discover tests
 ```
 
 ## API (resumen)
 
-Todas las rutas `/api/*` requieren sesión, salvo `/api/auth/status|login|setup` y `/api/inbound/<token>`. Las escrituras necesitan la cabecera `X-Requested-With: panel-ti`.
+Todas las rutas `/api/*` requieren sesión, salvo `/api/auth/status|login|setup`, `/api/inbound/<token>` y `/api/cron` (con su propio secreto). Las escrituras necesitan la cabecera `X-Requested-With: panel-ti`.
 
 | Área | Rutas |
 |---|---|
@@ -155,7 +160,7 @@ Todas las rutas `/api/*` requieren sesión, salvo `/api/auth/status|login|setup`
 | Métricas e informes | `/api/metrics`, `/api/activity`, `/api/report`, `/api/reports`, `/api/export/docx|xlsx|tasks.csv` |
 | Asistencia | `POST /api/ai/classify`, `/api/ai/query`, `/api/ai/report`, `/api/ai/kb/<id>` |
 | Administración | `GET /api/admin/status`, `POST /api/admin/backup`, `GET /api/admin/backups/<nombre>`, `PUT /api/settings` |
-| Entrada externa | `POST /api/inbound/<token>` |
+| Entrada externa | `POST /api/inbound/<token>`, `POST /api/cron[?job=sla|due|recurrence|backup|imap]` |
 
 ## Estructura
 
@@ -165,7 +170,9 @@ panel-ti/
 ├── serve.py          Servidor de producción (waitress)
 ├── manage.py         Administración por línea de comandos
 ├── envfile.py        Carga del archivo .env
-├── db.py             Esquema SQLite y migraciones
+├── db.py             Esquema, migraciones y conexión (SQLite o PostgreSQL)
+├── storage.py        Adjuntos y copias: carpeta local o Supabase Storage
+├── backup.py         Copias, exportación e importación de datos
 ├── core.py           Utilidades comunes y ajustes
 ├── auth.py           Contraseñas, roles, CSRF y acceso con Google y Microsoft
 ├── api_tasks.py      Tareas y reglas de flujo (dependencias, subtareas, CAB, recurrencia)
@@ -176,11 +183,10 @@ panel-ti/
 ├── sla.py            SLA y predicción de retrasos
 ├── ai.py             Claude y alternativas locales
 ├── automation.py     Trabajos programados
-├── backup.py         Copias de seguridad
 ├── seed.py           Datos de demostración
 ├── export_docx.py    Informe Word
 ├── export_xlsx.py    Informe Excel
-├── deploy/           Guía de publicación gratuita, Caddyfile, servicio systemd y servicio de Windows
+├── deploy/           Guías de publicación y de Supabase, Caddyfile, servicio systemd y servicio de Windows
 ├── tests/            Pruebas de la API
 └── static/           Interfaz (index.html, css/, js/ y js/views/)
 ```

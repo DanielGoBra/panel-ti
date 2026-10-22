@@ -1,5 +1,4 @@
 """Pruebas del acceso con Google: lista de correos, administradores y validación del token."""
-import importlib
 import os
 import sys
 import tempfile
@@ -9,6 +8,8 @@ from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import dbenv  # noqa: E402
 H = {"X-Requested-With": "panel-ti"}
 ENV = {
     "GOOGLE_CLIENT_ID": "cliente-prueba.apps.googleusercontent.com",
@@ -23,19 +24,17 @@ class GoogleLoginTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.saved = {k: os.environ.get(k) for k in [*ENV, "PANEL_TI_DB", "PANEL_TI_NO_SEED", "PANEL_TI_SCHEDULER"]}
+        cls.saved = {k: os.environ.get(k) for k in [*ENV, "PANEL_TI_NO_SEED"]}
         os.environ.update(ENV)
-        os.environ.update({"PANEL_TI_DB": os.path.join(cls.tmp.name, "sso.db"), "PANEL_TI_NO_SEED": "1", "PANEL_TI_SCHEDULER": "0"})
-        for mod in ("db", "core", "auth", "sla", "notify", "ai", "backup", "api_tasks", "api_core", "api_pages",
-                    "api_misc", "automation", "seed", "app"):
-            if mod in sys.modules:
-                importlib.reload(sys.modules[mod])
-        import app
+        os.environ["PANEL_TI_NO_SEED"] = "1"
+        dbenv.configure(cls.tmp.name, "sso.db")
+        cls.app = dbenv.reload_app()
         import auth
-        cls.app, cls.auth = app, auth
+        cls.auth = auth
 
     @classmethod
     def tearDownClass(cls):
+        dbenv.cleanup()
         for k, v in cls.saved.items():
             if v is None:
                 os.environ.pop(k, None)

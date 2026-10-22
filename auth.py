@@ -22,7 +22,7 @@ from db import ROLES, get_db
 bp = Blueprint("auth", __name__)
 
 PUBLIC_API = {"/api/auth/status", "/api/auth/login", "/api/auth/setup"}
-PUBLIC_PREFIXES = ("/api/inbound",)
+PUBLIC_PREFIXES = ("/api/inbound", "/api/cron")
 # Rutas que un usuario de solo lectura sí puede usar para escribir
 VIEWER_WRITABLE = ("/api/auth/", "/api/notifications")
 CSRF_HEADER = "X-Requested-With"

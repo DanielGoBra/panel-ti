@@ -2,5 +2,7 @@ flask>=3.0
 waitress>=3.0
 python-docx>=1.1
 openpyxl>=3.1
+# PostgreSQL (Supabase u otro): solo se usa si se define DATABASE_URL
+pg8000>=1.31
 # Opcional: asistencia con IA (Claude). Sin clave de API la app usa alternativas locales.
 anthropic>=0.70

@@ -260,7 +260,7 @@ def list_tasks():
             where.append(f"{col}=?")
             vals.append(request.args[key])
     if request.args.get("q"):
-        where.append("(t.title LIKE ? OR t.notes LIKE ? OR t.tags LIKE ?)")
+        where.append("(lower(t.title) LIKE lower(?) OR lower(t.notes) LIKE lower(?) OR lower(t.tags) LIKE lower(?))")
         vals += [f"%{request.args['q']}%"] * 3
     sql = TASK_SELECT + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY t.position"
     with get_db() as db:
@@ -389,7 +389,7 @@ def add_dep(tid):
             return bad("No existe", 404)
         if creates_cycle(db, tid, dep):
             return bad("Esa dependencia crearía un ciclo (A espera a B y B espera a A)")
-        db.execute("INSERT OR IGNORE INTO task_deps (task_id, depends_on) VALUES (?,?)", (tid, dep))
+        db.execute("INSERT INTO task_deps (task_id, depends_on) VALUES (?,?) ON CONFLICT DO NOTHING", (tid, dep))
         log(db, "updated", t, field="depends_on", new=task_key(db, d))
         return jsonify(fetch_task(db, tid))
 
@@ -579,7 +579,7 @@ def set_task_assets(tid):
             return bad("No existe", 404)
         db.execute("DELETE FROM task_assets WHERE task_id=?", (tid,))
         for a in ids:
-            db.execute("INSERT OR IGNORE INTO task_assets (task_id, asset_id) SELECT ?, id FROM assets WHERE id=?", (tid, a))
+            db.execute("INSERT INTO task_assets (task_id, asset_id) SELECT ?, id FROM assets WHERE id=? ON CONFLICT DO NOTHING", (tid, a))
         log(db, "updated", t, field="assets", new=str(len(ids)))
         return jsonify(fetch_task(db, tid))
 

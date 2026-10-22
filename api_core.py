@@ -451,7 +451,7 @@ def build_report_json(start=None, end=None):
     end = end or str(t0)
     with get_db() as db:
         settings = get_settings(db)
-        rows = db.execute(TASK_SELECT + " WHERE date(t.created_at) BETWEEN ? AND ? OR date(t.updated_at) BETWEEN ? AND ? "
+        rows = db.execute(TASK_SELECT + " WHERE substr(t.created_at, 1, 10) BETWEEN ? AND ? OR substr(t.updated_at, 1, 10) BETWEEN ? AND ? "
                           "OR t.status <> 'done'", (start, end, start, end)).fetchall()
         tasks = decorate(db, rows, settings)
         projects = {p["id"]: dict(p) for p in db.execute("SELECT * FROM projects")}

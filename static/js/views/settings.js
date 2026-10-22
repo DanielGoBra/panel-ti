@@ -85,7 +85,7 @@ export async function render(root) {
 
     <section class="card card-pad set">
       <h3>Copias de seguridad</h3>
-      <p class="hint">Se crea una copia automática cada 24 horas y se conservan las 14 últimas (ajustable con variables de entorno). Base de datos: <code>${esc(status?.db_path || "")}</code> · ${status ? size(status.db_size) : ""}.</p>
+      <p class="hint">Se crea una copia automática cada 24 horas y se conservan las 14 últimas (ajustable con variables de entorno). Base de datos: <code>${esc(status?.db_path || "")}</code> · ${status ? size(status.db_size) : ""}.${status?.backup_dir ? ` Copias en <code>${esc(status.backup_dir)}</code>.` : ""}</p>
       <div class="list-rows">${(status?.backups || []).slice(0, 8).map((b) => `<div class="row-item">${icons.save}<span class="grow">${esc(b.name)} <span class="muted">· ${size(b.size)} · ${esc(timeAgo(b.created_at))}</span></span><button class="btn sm ghost" data-dl="${esc(b.name)}">${icons.download}Descargar</button></div>`).join("") || '<div class="row-item muted">Aún no hay copias.</div>'}</div>
       <div class="set-actions"><button class="btn" data-backup>${icons.save}Crear copia ahora</button></div>
       ${status?.jobs ? `<p class="hint" style="margin-top:10px">Tareas automáticas: ${Object.entries(status.jobs).map(([k, v]) => `${esc(JOB_NAMES[k] || k)} ${esc(timeAgo(v.at))}${v.status === "error" ? " (error)" : ""}`).join(" · ")}</p>` : ""}

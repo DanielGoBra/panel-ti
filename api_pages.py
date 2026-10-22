@@ -65,7 +65,7 @@ def linked_task_ids(db, blocks):
 def save_links(db, page_id, blocks):
     db.execute("DELETE FROM page_tasks WHERE page_id=?", (page_id,))
     for tid in linked_task_ids(db, blocks):
-        db.execute("INSERT OR IGNORE INTO page_tasks (page_id, task_id) SELECT ?, id FROM tasks WHERE id=?", (page_id, tid))
+        db.execute("INSERT INTO page_tasks (page_id, task_id) SELECT ?, id FROM tasks WHERE id=? ON CONFLICT DO NOTHING", (page_id, tid))
 
 
 def page_out(db, row, full=True):
@@ -87,7 +87,8 @@ def create_page_record(db, data):
     parent = data.get("parent_id") or None
     if parent and not db.execute("SELECT 1 FROM pages WHERE id=?", (parent,)).fetchone():
         raise ValueError("La página superior no existe")
-    pos = (db.execute("SELECT MAX(position) FROM pages WHERE parent_id IS ?", (parent,)).fetchone()[0] or 0) + 1024
+    pos = (db.execute("SELECT MAX(position) FROM pages WHERE " + ("parent_id=?" if parent else "parent_id IS NULL"),
+                      (parent,) if parent else ()).fetchone()[0] or 0) + 1024
     stamp = now()
     pid = db.execute(
         "INSERT INTO pages (parent_id, project_id, title, icon, kind, blocks, position, created_by, updated_by, created_at, updated_at) "
@@ -111,7 +112,7 @@ def search_pages():
     if len(q) < 2:
         return jsonify([])
     with get_db() as db:
-        rows = db.execute("SELECT id, title, icon, kind, blocks FROM pages WHERE title LIKE ? OR blocks LIKE ? ORDER BY updated_at DESC LIMIT 12",
+        rows = db.execute("SELECT id, title, icon, kind, blocks FROM pages WHERE lower(title) LIKE lower(?) OR lower(blocks) LIKE lower(?) ORDER BY updated_at DESC LIMIT 12",
                           (f"%{q}%", f"%{q}%")).fetchall()
     out = []
     low = q.lower()

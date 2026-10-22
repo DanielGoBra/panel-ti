@@ -181,7 +181,7 @@ def seed_demo_data(force=False):
 
         pw = hash_password(DEMO_PASSWORD)
         for name, email, title, team, cap, role, cab in MEMBERS:
-            db.execute("INSERT OR IGNORE INTO members (name, email, title, team, capacity, role, is_cab, password_hash) VALUES (?,?,?,?,?,?,?,?)",
+            db.execute("INSERT INTO members (name, email, title, team, capacity, role, is_cab, password_hash) VALUES (?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING",
                        (name, email, title, team, cap, role, cab, pw))
 
         pids = {}
@@ -286,7 +286,7 @@ def seed_demo_data(force=False):
                  ("Correo lento en sede Norte", "Microsoft 365"), ("Impresoras de planta 2 sin servicio", "Impresora sala de juntas")]
         links += [(i[0], i[6]) for i in INCIDENTS]
         for t, a in links:
-            db.execute("INSERT OR IGNORE INTO task_assets (task_id, asset_id) VALUES (?,?)", (tids[t][0], aids[a]))
+            db.execute("INSERT INTO task_assets (task_id, asset_id) VALUES (?,?) ON CONFLICT DO NOTHING", (tids[t][0], aids[a]))
 
         # Campos personalizados
         db.execute("INSERT INTO custom_fields (name, type, options, position) VALUES (?,?,?,?)", ("Impacto", "select", json.dumps(["Bajo", "Medio", "Alto"]), 1))
