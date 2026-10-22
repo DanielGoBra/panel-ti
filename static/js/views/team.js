@@ -38,7 +38,7 @@ export function render(root, _params, nav) {
         return `<tr class="click${inactive ? " inactive" : ""}" data-name="${esc(r.m.name)}">
           <td><div class="person">${avatar(r.m.name, "lg")}<div><div style="font-weight:500">${esc(r.m.name)}${r.m.id === store.me.id ? ' <span class="muted" style="font-weight:400">(tú)</span>' : ""}</div><div class="muted" style="font-size:12px">${esc([r.m.title, r.m.team].filter(Boolean).join(" · ") || r.m.email || "")}</div></div></div></td>
           <td><span class="role-chip ${r.m.role}">${esc(label(ROLES, r.m.role))}</span>${r.m.is_cab ? ' <span class="role-chip cab" title="Puede aprobar cambios">CAB</span>' : ""}${inactive ? ' <span class="role-chip off">Desactivada</span>' : ""}
-            ${admin && !r.m.has_password && !r.m.sso ? `<div class="muted" style="font-size:11.5px;margin-top:2px">Sin acceso todavía</div>` : admin && r.m.last_login ? `<div class="muted" style="font-size:11.5px;margin-top:2px">Entró ${esc(timeAgo(r.m.last_login))}</div>` : ""}</td>
+            ${admin && !r.m.has_password && !r.m.sso ? `<div class="muted" style="font-size:11.5px;margin-top:2px">${store.features.password ? "Sin acceso todavía" : "Aún no ha entrado"}</div>` : admin && r.m.last_login ? `<div class="muted" style="font-size:11.5px;margin-top:2px">Entró ${esc(timeAgo(r.m.last_login))}</div>` : ""}</td>
           <td class="num">${r.open}</td><td class="num">${r.wip}</td>
           <td class="num"${r.blocked ? ' style="color:var(--bad);font-weight:600"' : ""}>${r.blocked}</td>
           <td class="num"${r.overdue ? ' style="color:var(--bad);font-weight:600"' : ""}>${r.overdue}</td>
@@ -64,7 +64,7 @@ export function render(root, _params, nav) {
     popMenu(b, [
       { value: "board", html: `${icons.board}Ver su tablero` },
       { value: "edit", html: `${icons.edit}Editar datos y rol` },
-      { value: "reset", html: `${icons.key}${m.has_password ? "Restablecer contraseña" : "Crear acceso"}` },
+      ...(store.features.password ? [{ value: "reset", html: `${icons.key}${m.has_password ? "Restablecer contraseña" : "Crear acceso"}` }] : []),
       ...(!self ? [{ value: "active", html: `${m.active === false ? icons.done : icons.blocked}${m.active === false ? "Reactivar cuenta" : "Desactivar cuenta"}` }] : []),
       ...(!self ? [{ sep: true }, { value: "del", html: `${icons.trash}Eliminar del equipo`, danger: true }] : []),
     ], async (v) => {

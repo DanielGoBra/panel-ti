@@ -30,7 +30,9 @@ export async function render(root) {
       <div class="form-grid">
         <label class="field"><span>Nombre del área</span><input class="input" id="ws-name" value="${esc(s.workspace || "")}"></label>
         <div class="field"><span>Integraciones del servidor</span><div class="feat-row">
-          ${state(f.sso, f.sso ? "Microsoft Entra ID" : "Microsoft sin configurar")}
+          ${state((f.providers || []).includes("google"), (f.providers || []).includes("google") ? "Acceso con Google" : "Google sin configurar")}
+          ${state((f.providers || []).includes("microsoft"), (f.providers || []).includes("microsoft") ? "Microsoft Entra ID" : "Microsoft sin configurar")}
+          ${state(!f.password, f.password ? "Contraseñas activas" : "Solo acceso con cuenta externa")}
           ${state(f.email, f.email ? "Correo saliente" : "Correo sin configurar")}
           ${state(f.ai, f.ai ? `IA (${esc(status?.ai_model || "")})` : "IA sin configurar")}
           ${state(f.imap, f.imap ? "Buzón de entrada" : "Buzón sin configurar")}

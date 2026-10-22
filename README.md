@@ -38,7 +38,7 @@ Espacio de trabajo propio, al estilo Notion, para que los equipos de TI y las á
 - **Campos personalizados** (texto, número, lista, fecha, casilla, enlace), globales o por proyecto.
 
 **Equipo y control**
-- Inicio de sesión con contraseña o con **Microsoft Entra ID**. Roles de **administración**, **miembro** y **lectura**, y marca de **CAB**.
+- Inicio de sesión con **Google** (Gmail o Workspace), **Microsoft Entra ID** o contraseña. Se puede limitar a una lista de correos y desactivar las contraseñas. Roles de **administración**, **miembro** y **lectura**, y marca de **CAB**.
 - **Avisos** dentro de la app (campana), por **correo** y en un canal de **Teams**: asignaciones, menciones, comentarios, vencimientos, bloqueos, aprobaciones y SLA.
 - **Actualización en vivo**: los cambios de otras personas aparecen en unos segundos sin recargar.
 - **Entrada de solicitudes** desde el correo (IMAP) o desde cualquier sistema mediante un webhook (Power Automate, Teams, formularios). Se clasifican y asignan solas.
@@ -75,6 +75,8 @@ Si ya tenías un `data.db` de una versión anterior, se migra solo al arrancar, 
 
 ## Puesta en producción
 
+**Sin coste**: con un subdominio de un dominio que ya tengas, Cloudflare Tunnel y el acceso con Google se puede publicar desde un equipo propio sin pagar servidor. La guía paso a paso está en [`deploy/PUBLICAR.md`](deploy/PUBLICAR.md).
+
 Usa `serve.py` (servidor **waitress**, funciona en Windows y en Linux) detrás de un proxy con HTTPS. Copia `.env.example` como `.env` y define al menos `SECRET_KEY` y `PANEL_TI_NO_SEED=1`.
 
 **Opción A · Docker con HTTPS automático** (Linux con un dominio que apunte al servidor):
@@ -105,6 +107,7 @@ Para HTTPS, publícalo con **IIS** (módulos URL Rewrite y ARR) como proxy inver
 
 | Integración | Cómo activarla |
 |---|---|
+| **Google** | En Google Cloud, crea un *ID de cliente de OAuth* de tipo aplicación web con la URI `https://TU-DOMINIO/auth/google/callback` y define `GOOGLE_CLIENT_ID` y `GOOGLE_CLIENT_SECRET`. Con cuentas de Gmail, limita el acceso con `ALLOWED_EMAILS`; con Google Workspace, con `ALLOWED_DOMAINS`. `ADMIN_EMAILS` indica quién entra como administración. Pasos completos en [`deploy/PUBLICAR.md`](deploy/PUBLICAR.md). |
 | **Microsoft Entra ID** | En Azure, *Registros de aplicaciones → Nuevo registro*, con URI de redirección web `https://TU-DOMINIO/auth/microsoft/callback`. Crea un secreto de cliente y define `MS_TENANT_ID`, `MS_CLIENT_ID` y `MS_CLIENT_SECRET`. Al entrar, la persona se vincula por correo con su ficha; si no existe, se crea con el rol `MS_DEFAULT_ROLE` (o desactívalo con `MS_AUTO_PROVISION=0`). |
 | **Correo de avisos** | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM`. Cada persona puede desactivarlo desde su perfil. Define `PUBLIC_URL` para que los enlaces apunten bien. |
 | **Teams** | En el canal, *Workflows → Publicar en un canal cuando se recibe una solicitud de webhook*. Pega la URL en **Ajustes → Avisos en Microsoft Teams** y pulsa *Probar*. |
@@ -113,6 +116,7 @@ Para HTTPS, publícalo con **IIS** (módulos URL Rewrite y ARR) como proxy inver
 
 ## Seguridad
 
+- Acceso con Google o Microsoft validando audiencia, emisor, `nonce`, caducidad y correo verificado. Con `ALLOWED_EMAILS`/`ALLOWED_DOMAINS` solo entran esas cuentas o las que administración da de alta, y con `PASSWORD_LOGIN=0` se desactivan las contraseñas.
 - Contraseñas con hash (scrypt) y bloqueo temporal tras 5 intentos fallidos. Cambiar la contraseña cierra las demás sesiones.
 - Cookies `HttpOnly` y `SameSite=Lax` (`Secure` con `COOKIE_SECURE=1`). Las escrituras exigen una cabecera propia contra CSRF.
 - Política de seguridad de contenido (CSP) estricta, sin scripts en línea. El contenido de páginas y comentarios se escapa siempre.
@@ -142,7 +146,7 @@ Todas las rutas `/api/*` requieren sesión, salvo `/api/auth/status|login|setup`
 
 | Área | Rutas |
 |---|---|
-| Sesión | `GET /api/auth/status`, `POST /api/auth/login`, `POST /api/auth/setup`, `POST /api/auth/logout`, `PUT /api/auth/me`, `/auth/microsoft/login` |
+| Sesión | `GET /api/auth/status`, `POST /api/auth/login`, `POST /api/auth/setup`, `POST /api/auth/logout`, `PUT /api/auth/me`, `/auth/google/login`, `/auth/microsoft/login` |
 | Arranque y vivo | `GET /api/bootstrap`, `GET /api/sync` |
 | Tareas | `/api/tasks[/<id>]`, `/api/tasks/bulk`, `/duplicate`, `/deps`, `/approval`, `/recurrence`, `/assets`, `/checklist`, `/comments`, `/attachments` |
 | Páginas | `/api/pages[/<id>]`, `/api/pages/search`, `/api/pages/<id>/attachments` |
@@ -163,7 +167,7 @@ panel-ti/
 ├── envfile.py        Carga del archivo .env
 ├── db.py             Esquema SQLite y migraciones
 ├── core.py           Utilidades comunes y ajustes
-├── auth.py           Contraseñas, roles, CSRF y Microsoft Entra ID
+├── auth.py           Contraseñas, roles, CSRF y acceso con Google y Microsoft
 ├── api_tasks.py      Tareas y reglas de flujo (dependencias, subtareas, CAB, recurrencia)
 ├── api_core.py       Proyectos, personas, métricas e informes
 ├── api_pages.py      Páginas y bloques
@@ -176,7 +180,7 @@ panel-ti/
 ├── seed.py           Datos de demostración
 ├── export_docx.py    Informe Word
 ├── export_xlsx.py    Informe Excel
-├── deploy/           Caddyfile, servicio systemd y servicio de Windows
+├── deploy/           Guía de publicación gratuita, Caddyfile, servicio systemd y servicio de Windows
 ├── tests/            Pruebas de la API
 └── static/           Interfaz (index.html, css/, js/ y js/views/)
 ```

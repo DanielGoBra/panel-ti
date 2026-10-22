@@ -355,7 +355,7 @@ export function showTempPassword(name, email, temp) {
 export function openMemberForm(m = null) {
   modal({
     title: m ? "Editar persona" : "Añadir persona",
-    sub: m ? "" : "Si indicas un correo se crea su acceso con una contraseña temporal.",
+    sub: m ? "" : store.features.password ? "Si indicas un correo se crea su acceso con una contraseña temporal." : `Indica su correo: podrá entrar con su cuenta de ${(store.features.providers || []).map((p) => (p === "google" ? "Google" : "Microsoft")).join(" o ") || "Google"}.`,
     saveLabel: m ? "Guardar cambios" : "Añadir",
     body: `<div class="form-grid">
       <label class="field full"><span>Nombre y apellidos</span><input class="input" name="name" autofocus value="${esc(m?.name || "")}"></label>
@@ -387,9 +387,9 @@ export function openProfile() {
       <label class="field"><span>Correo</span><input class="input" type="email" name="email" value="${esc(me.email || "")}"></label>
       <label class="field"><span>Puesto</span><input class="input" name="title" value="${esc(me.title || "")}"></label>
       <label class="field full check-field"><span>Avisos por correo</span><label class="auth-check"><input type="checkbox" class="chk" name="notify_email"${me.notify_email ? " checked" : ""}> Recibir por correo las asignaciones, menciones y vencimientos${store.features.email ? "" : " (el servidor de correo aún no está configurado)"}</label></label>
-      <div class="field full"><span>Cambiar contraseña</span></div>
+      ${store.features.password ? `<div class="field full"><span>Cambiar contraseña</span></div>
       ${me.has_password ? `<label class="field"><span>Contraseña actual</span><input class="input" type="password" name="current_password" autocomplete="current-password"></label>` : ""}
-      <label class="field"><span>Nueva contraseña</span><input class="input" type="password" name="new_password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres"></label>
+      <label class="field"><span>Nueva contraseña</span><input class="input" type="password" name="new_password" autocomplete="new-password" minlength="8" placeholder="Mínimo 8 caracteres"></label>` : `<p class="hint full">${me.sso ? "Entras con tu cuenta de Google o Microsoft; la contraseña se gestiona allí." : ""}</p>`}
     </div>`,
     footLeft: `<button type="button" class="btn sm ghost" data-test>${icons.bell}Enviarme un aviso de prueba</button>`,
     async onSave(form) {

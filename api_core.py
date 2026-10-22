@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta
 from flask import Blueprint, Response, jsonify, request, send_file
 
 from api_tasks import TASK_SELECT, decorate
-from auth import hash_password, public_user, require_admin
+from auth import hash_password, password_login_enabled, public_user, require_admin
 from core import (DEFAULT_SETTINGS, MEMBER_WRITABLE_SETTINGS, PRIORITY_LABEL, STATUS_LABEL, TYPE_LABEL, actor, bad,
                   body, current_user, get_settings, get_state, is_admin, log, now, parse_dt, save_setting, task_key,
                   today)
@@ -57,8 +57,9 @@ def features():
     import ai
     import os
     from notify import smtp_configured
-    from auth import sso_enabled
+    from auth import password_login_enabled, sso_enabled, sso_providers
     return {"ai": ai.available(), "email": smtp_configured(), "sso": sso_enabled(),
+            "providers": [p["id"] for p in sso_providers()], "password": password_login_enabled(),
             "imap": bool(os.environ.get("IMAP_HOST"))}
 
 
@@ -206,7 +207,7 @@ def create_member():
         if email and db.execute("SELECT 1 FROM members WHERE lower(email)=?", (email,)).fetchone():
             return bad("Ya existe una persona con ese correo")
         pw_hash = ""
-        if email and data.get("create_login", True):
+        if email and data.get("create_login", True) and password_login_enabled():
             temp = _temp_password()
             pw_hash = hash_password(temp)
         mid = db.execute(
@@ -271,6 +272,8 @@ def reset_password(mid):
             return bad("No existe", 404)
         if not m["email"]:
             return bad("Añade antes un correo a esta persona: lo usará para iniciar sesión")
+        if not password_login_enabled():
+            return bad("El acceso con contraseña está desactivado: esta persona entra con su cuenta de Google o Microsoft")
         temp = _temp_password()
         db.execute("UPDATE members SET password_hash=? WHERE id=?", (hash_password(temp), mid))
         return jsonify({"temp_password": temp})

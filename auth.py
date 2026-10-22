@@ -67,7 +67,12 @@ def needs_setup(db):
 
 
 def sso_enabled():
-    return all(os.environ.get(k) for k in ("MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET"))
+    return any(all(os.environ.get(k) for k in p["env"]) for p in PROVIDERS.values())
+
+
+def password_login_enabled():
+    """PASSWORD_LOGIN=0 deja solo el acceso con Google o Microsoft (recomendado si la app está en internet)."""
+    return os.environ.get("PASSWORD_LOGIN", "1") != "0"
 
 
 def require_admin(fn):
@@ -128,12 +133,16 @@ def status():
             "user": public_user(g.user) if g.user else None,
             "needs_setup": needs_setup(db),
             "sso": sso_enabled(),
+            "providers": sso_providers(),
+            "password": password_login_enabled(),
         })
 
 
 @bp.post("/api/auth/setup")
 def setup():
     """Crea la primera cuenta de administración. Solo funciona mientras no exista ninguna."""
+    if not password_login_enabled():
+        return bad("El acceso con contraseña está desactivado. Entra con tu cuenta de Google o Microsoft.", 403)
     data = body()
     name = str(data.get("name", "")).strip()
     email = str(data.get("email", "")).strip().lower()
@@ -161,6 +170,8 @@ def setup():
 
 @bp.post("/api/auth/login")
 def login():
+    if not password_login_enabled():
+        return bad("El acceso con contraseña está desactivado. Entra con tu cuenta de Google o Microsoft.", 403)
     data = body()
     ident = str(data.get("email", "")).strip()
     pw = data.get("password", "")
@@ -200,6 +211,8 @@ def update_me():
             sets.append("notify_email=?")
             vals.append(1 if data["notify_email"] else 0)
         if data.get("new_password"):
+            if not password_login_enabled():
+                return bad("El acceso con contraseña está desactivado")
             if m["password_hash"] and not check_password_hash(m["password_hash"], data.get("current_password", "")):
                 return bad("La contraseña actual no es correcta", 403)
             err = check_password_policy(data["new_password"])
@@ -216,27 +229,65 @@ def update_me():
         return jsonify({"user": public_user(m)})
 
 
-# ---------- Microsoft Entra ID (OpenID Connect) ----------
-def _ms_base():
-    return f"https://login.microsoftonline.com/{os.environ['MS_TENANT_ID']}/oauth2/v2.0"
+# ---------- Inicio de sesión externo (OpenID Connect): Microsoft y Google ----------
+PROVIDERS = {
+    "microsoft": {
+        "label": "Microsoft",
+        "env": ("MS_TENANT_ID", "MS_CLIENT_ID", "MS_CLIENT_SECRET"),
+        "client_id": "MS_CLIENT_ID", "client_secret": "MS_CLIENT_SECRET", "redirect": "MS_REDIRECT_URI",
+    },
+    "google": {
+        "label": "Google",
+        "env": ("GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
+        "client_id": "GOOGLE_CLIENT_ID", "client_secret": "GOOGLE_CLIENT_SECRET", "redirect": "GOOGLE_REDIRECT_URI",
+        "authorize": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token": "https://oauth2.googleapis.com/token",
+        "issuers": ("https://accounts.google.com", "accounts.google.com"),
+    },
+}
+SCOPE = "openid profile email"
 
 
-def _ms_redirect():
-    return os.environ.get("MS_REDIRECT_URI") or request.url_root.rstrip("/") + "/auth/microsoft/callback"
+def provider_enabled(name):
+    return all(os.environ.get(k) for k in PROVIDERS[name]["env"])
 
 
-@bp.get("/auth/microsoft/login")
-def ms_login():
-    if not sso_enabled():
-        return redirect("/#/login?error=sso")
-    session["oauth_state"] = secrets.token_urlsafe(24)
-    session["oauth_nonce"] = secrets.token_urlsafe(24)
-    q = urllib.parse.urlencode({
-        "client_id": os.environ["MS_CLIENT_ID"], "response_type": "code", "redirect_uri": _ms_redirect(),
-        "response_mode": "query", "scope": "openid profile email", "state": session["oauth_state"],
-        "nonce": session["oauth_nonce"], "prompt": "select_account",
-    })
-    return redirect(f"{_ms_base()}/authorize?{q}")
+def sso_providers():
+    return [{"id": k, "label": v["label"]} for k, v in PROVIDERS.items() if provider_enabled(k)]
+
+
+def _env_set(*names):
+    for n in names:
+        if os.environ.get(n):
+            return {x.strip().lower() for x in os.environ[n].replace(";", ",").split(",") if x.strip()}
+    return set()
+
+
+def email_allowed(db, email):
+    """Con ALLOWED_EMAILS o ALLOWED_DOMAINS definidos, solo entran esos correos o personas ya dadas de alta."""
+    allowed, domains = _env_set("ALLOWED_EMAILS"), _env_set("ALLOWED_DOMAINS")
+    if not allowed and not domains:
+        return None  # sin lista: decide la autoprovisión
+    if email in allowed or email.split("@")[-1] in domains:
+        return True
+    return bool(db.execute("SELECT 1 FROM members WHERE lower(email)=? AND active=1", (email,)).fetchone())
+
+
+def _redirect_uri(name):
+    base = os.environ.get("PUBLIC_URL") or request.url_root
+    return os.environ.get(PROVIDERS[name]["redirect"]) or base.rstrip("/") + f"/auth/{name}/callback"
+
+
+def _authorize_url(name):
+    if name == "microsoft":
+        return f"https://login.microsoftonline.com/{os.environ['MS_TENANT_ID']}/oauth2/v2.0/authorize"
+    return PROVIDERS[name]["authorize"]
+
+
+def _token_url(name):
+    if name == "microsoft":
+        return f"https://login.microsoftonline.com/{os.environ['MS_TENANT_ID']}/oauth2/v2.0/token"
+    return PROVIDERS[name]["token"]
 
 
 def _decode_jwt_payload(token):
@@ -244,53 +295,115 @@ def _decode_jwt_payload(token):
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
-@bp.get("/auth/microsoft/callback")
-def ms_callback():
-    if not sso_enabled():
-        return redirect("/")
-    if request.args.get("error") or request.args.get("state") != session.pop("oauth_state", None):
-        return redirect("/#/login?error=sso")
+def exchange_code(name, code):
+    """Canjea el código por el id_token y devuelve sus datos.
+
+    El token llega directamente del proveedor por TLS (OIDC Core 3.1.3.7), así que basta con
+    validar audiencia, emisor, nonce y caducidad, que se comprueban en _validate.
+    """
+    cfg = PROVIDERS[name]
     data = urllib.parse.urlencode({
-        "client_id": os.environ["MS_CLIENT_ID"], "client_secret": os.environ["MS_CLIENT_SECRET"],
-        "grant_type": "authorization_code", "code": request.args.get("code", ""), "redirect_uri": _ms_redirect(),
-        "scope": "openid profile email",
+        "client_id": os.environ[cfg["client_id"]], "client_secret": os.environ[cfg["client_secret"]],
+        "grant_type": "authorization_code", "code": code, "redirect_uri": _redirect_uri(name), "scope": SCOPE,
     }).encode()
+    req = urllib.request.Request(_token_url(name), data=data, headers={"Content-Type": "application/x-www-form-urlencoded"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        tokens = json.loads(r.read())
+    return _decode_jwt_payload(tokens["id_token"])
+
+
+def _validate(name, claims, nonce):
+    cfg = PROVIDERS[name]
+    if claims.get("aud") != os.environ[cfg["client_id"]] or claims.get("nonce") != nonce or claims.get("exp", 0) < time.time():
+        return False
+    if name == "microsoft":
+        tenant = os.environ["MS_TENANT_ID"]
+        return tenant in ("common", "organizations") or tenant in claims.get("iss", "")
+    if claims.get("iss") not in cfg["issuers"]:
+        return False
+    return claims.get("email_verified") in (True, "true")
+
+
+def _start(name):
+    if not provider_enabled(name):
+        return redirect("/#/login?error=sso")
+    session["oauth_state"] = secrets.token_urlsafe(24)
+    session["oauth_nonce"] = secrets.token_urlsafe(24)
+    session["oauth_provider"] = name
+    params = {
+        "client_id": os.environ[PROVIDERS[name]["client_id"]], "response_type": "code", "redirect_uri": _redirect_uri(name),
+        "scope": SCOPE, "state": session["oauth_state"], "nonce": session["oauth_nonce"], "prompt": "select_account",
+    }
+    if name == "microsoft":
+        params["response_mode"] = "query"
+    domains = _env_set("ALLOWED_DOMAINS")
+    if name == "google" and len(domains) == 1 and not _env_set("ALLOWED_EMAILS"):
+        params["hd"] = next(iter(domains))  # Google Workspace: muestra solo cuentas del dominio
+    return redirect(f"{_authorize_url(name)}?{urllib.parse.urlencode(params)}")
+
+
+def _finish(name):
+    if not provider_enabled(name):
+        return redirect("/")
+    state, nonce = session.pop("oauth_state", None), session.pop("oauth_nonce", None)
+    if session.pop("oauth_provider", None) != name or request.args.get("error") or not state or request.args.get("state") != state:
+        return redirect("/#/login?error=sso")
     try:
-        with urllib.request.urlopen(urllib.request.Request(f"{_ms_base()}/token", data=data), timeout=15) as r:
-            tokens = json.loads(r.read())
-        # El token llega directamente del endpoint de Microsoft por TLS (OIDC Core 3.1.3.7):
-        # se validan audiencia, emisor, nonce y caducidad.
-        claims = _decode_jwt_payload(tokens["id_token"])
+        claims = exchange_code(name, request.args.get("code", ""))
     except Exception:
         return redirect("/#/login?error=sso")
-    tenant = os.environ["MS_TENANT_ID"]
-    if (claims.get("aud") != os.environ["MS_CLIENT_ID"] or claims.get("nonce") != session.pop("oauth_nonce", None)
-            or claims.get("exp", 0) < time.time() or (tenant not in ("common", "organizations") and tenant not in claims.get("iss", ""))):
+    if not _validate(name, claims, nonce):
         return redirect("/#/login?error=sso")
-    subject = claims.get("oid") or claims.get("sub")
-    email = (claims.get("email") or claims.get("preferred_username") or "").lower()
-    name = claims.get("name") or email.split("@")[0]
+    subject = f"{name}:{claims.get('oid') or claims.get('sub')}"
+    legacy = claims.get("oid") or claims.get("sub")  # versiones anteriores guardaban el id de Microsoft sin prefijo
+    email = (claims.get("email") or claims.get("preferred_username") or "").strip().lower()
+    display = claims.get("name") or email.split("@")[0]
+    if not email:
+        return redirect("/#/login?error=sso")
+    admins = _env_set("ADMIN_EMAILS")
     with get_db() as db:
-        m = db.execute("SELECT * FROM members WHERE sso_subject=?", (subject,)).fetchone()
-        if not m and email:
+        allowed = email_allowed(db, email)
+        if allowed is False:
+            return redirect("/#/login?error=notallowed")
+        m = db.execute("SELECT * FROM members WHERE sso_subject IN (?, ?)", (subject, legacy if name == "microsoft" else subject)).fetchone()
+        if not m:
             m = db.execute("SELECT * FROM members WHERE lower(email)=?", (email,)).fetchone()
         first = needs_setup(db)
         if not m:
-            if os.environ.get("MS_AUTO_PROVISION", "1") != "1" and not first:
+            auto = os.environ.get("SSO_AUTO_PROVISION", os.environ.get("MS_AUTO_PROVISION", "1")) == "1"
+            if allowed is None and not auto and not first and email not in admins:
                 return redirect("/#/login?error=noaccount")
-            role = "admin" if first else os.environ.get("MS_DEFAULT_ROLE", "member")
+            role = os.environ.get("SSO_DEFAULT_ROLE", os.environ.get("MS_DEFAULT_ROLE", "member"))
+            if email in admins or (first and not admins):
+                role = "admin"
             role = role if role in ROLES else "member"
-            base, n = name, 2
-            while db.execute("SELECT 1 FROM members WHERE name=?", (name,)).fetchone():
-                name = f"{base} ({n})"
+            base, n, uname = display, 2, display
+            while db.execute("SELECT 1 FROM members WHERE name=?", (uname,)).fetchone():
+                uname = f"{base} ({n})"
                 n += 1
             mid = db.execute("INSERT INTO members (name, email, role, sso_subject) VALUES (?,?,?,?)",
-                             (name, email, role, subject)).lastrowid
+                             (uname, email, role, subject)).lastrowid
         else:
             if not m["active"]:
                 return redirect("/#/login?error=disabled")
             mid = m["id"]
             db.execute("UPDATE members SET sso_subject=?, email=COALESCE(NULLIF(email,''), ?) WHERE id=?", (subject, email, mid))
+            if email in admins and m["role"] != "admin":
+                db.execute("UPDATE members SET role='admin' WHERE id=?", (mid,))
         m = db.execute("SELECT * FROM members WHERE id=?", (mid,)).fetchone()
         start_session(db, m, remember=True)
     return redirect("/")
+
+
+@bp.get("/auth/<name>/login")
+def sso_login(name):
+    if name not in PROVIDERS:
+        return redirect("/#/login?error=sso")
+    return _start(name)
+
+
+@bp.get("/auth/<name>/callback")
+def sso_callback(name):
+    if name not in PROVIDERS:
+        return redirect("/")
+    return _finish(name)

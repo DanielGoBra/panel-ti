@@ -1,0 +1,27 @@
+# Publicación gratuita con Cloudflare Tunnel: no abre puertos en tu red ni necesita IP fija.
+# 1. Crea el túnel en Cloudflare (Zero Trust → Networks → Tunnels) y copia su token.
+# 2. En .env define TUNNEL_TOKEN y el resto de variables (ver deploy/PUBLICAR.md).
+# 3. docker compose -f docker-compose.tunnel.yml up -d
+# En el túnel, el servicio de destino es: http://app:8000
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      TRUST_PROXY: "1"
+      COOKIE_SECURE: "1"
+    volumes:
+      - panel-data:/data
+
+  tunnel:
+    image: cloudflare/cloudflared:2024.12.2
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN}
+    depends_on:
+      - app
+
+volumes:
+  panel-data:
